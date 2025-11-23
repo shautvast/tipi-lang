@@ -202,6 +202,22 @@ fn add(a:i64, b:i64) -> i64:
 let sum = add(1,2)
 ```
 
+**for loops**
+```
+for i in [1,2,3]:
+    print(i)
+```
+
+**if / else expressions **
+```
+let a = if true: 
+  42
+else: 
+  0
+print(a)
+```
+=>42
+
 **An actual controller**
 ```
 fn get() -> string:
@@ -215,6 +231,3 @@ fn add(a: string, b: string) -> string:
 ISSUES
 * Make everything an expression. If is a statement and so it can not be type checked
 * improve indenting
-* add an extra pass that creates a more IR-like representation (enum instead of bytes)
-  * easier debugging
-  * chunk debug to stdout can be removed

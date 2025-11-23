@@ -1,5 +1,7 @@
+use crate::builtins::globals::GLOBAL_FUNCTIONS;
 use crate::compiler::ast_pass::Expression::{
-    Assignment, FieldGet, FunctionCall, ListGet, MapGet, MethodCall, NamedParameter, Stop, Variable,
+    Assignment, FieldGet, FunctionCall, IfExpression, ListGet, MapGet, MethodCall, NamedParameter,
+    Stop, Variable,
 };
 use crate::compiler::tokens::TokenType::{
     Bang, Bool, Char, Colon, DateTime, Dot, Else, Eof, Eol, Equal, False, FloatingPoint, Fn, For,
@@ -18,7 +20,6 @@ use crate::value::Value;
 use crate::{DATE_FORMAT_TIMEZONE, Expr, Stmt, SymbolTable};
 use log::debug;
 use std::collections::HashMap;
-use crate::builtins::globals::GLOBAL_FUNCTIONS;
 
 pub fn compile(
     path: Option<&str>,
@@ -237,7 +238,9 @@ impl AstCompiler {
     fn function_declaration(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
         let name_token = self.consume(&Identifier, Expected("function name."))?;
         if GLOBAL_FUNCTIONS.contains_key(name_token.lexeme.as_str()) {
-            return Err(self.raise(CompilerError::ReservedFunctionName(name_token.lexeme.clone())))
+            return Err(self.raise(CompilerError::ReservedFunctionName(
+                name_token.lexeme.clone(),
+            )));
         }
         self.consume(&LeftParen, Expected("'(' after function name."))?;
         let mut parameters = vec![];
@@ -325,11 +328,7 @@ impl AstCompiler {
     }
 
     fn statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
-        if self.match_token(&[Print]) {
-            self.print_statement(symbol_table)
-        } else if self.match_token(&[If]) {
-            self.if_statement(symbol_table)
-        } else if self.match_token(&[For]) {
+        if self.match_token(&[For]) {
             self.for_statement(symbol_table)
         } else {
             self.expr_statement(symbol_table)
@@ -352,37 +351,8 @@ impl AstCompiler {
         })
     }
 
-    fn if_statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
-        let condition = self.expression(symbol_table)?;
-        self.consume(&Colon, Expected("':' after if condition."))?;
-
-        self.inc_indent();
-        let then_branch = self.compile(symbol_table)?;
-
-        let else_branch = if self.check(&Else) {
-            self.consume(&Else, Expected("'else' after if condition."))?;
-            self.consume(&Colon, Expected("':' after 'else'."))?;
-
-            self.inc_indent();
-            Some(self.compile(symbol_table)?)
-        } else {
-            None
-        };
-        Ok(Statement::IfStatement {
-            condition,
-            then_branch,
-            else_branch,
-        })
-    }
-
     fn inc_indent(&mut self) {
         self.indent.push(self.indent.last().unwrap() + 1);
-    }
-
-    fn print_statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
-        let expr = self.expression(symbol_table)?;
-        self.consume(&Eol, Expected("end of line after print statement."))?;
-        Ok(Statement::PrintStmt { value: expr })
     }
 
     fn expr_statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
@@ -515,6 +485,33 @@ impl AstCompiler {
                 line: self.peek().line,
                 operator,
                 right: Box::new(right),
+            })
+        } else {
+            self.equals(symbol_table)
+        }
+    }
+
+    fn equals(&mut self, symbol_table: &mut SymbolTable) -> Expr {
+        if self.match_token(&[If]) {
+            let condition = self.expression(symbol_table)?;
+            self.consume(&Colon, Expected("':' after if condition."))?;
+
+            self.inc_indent();
+            let then_branch = self.compile(symbol_table)?;
+
+            let else_branch = if self.check(&Else) {
+                self.consume(&Else, Expected("'else' after if condition."))?;
+                self.consume(&Colon, Expected("':' after 'else'."))?;
+
+                self.inc_indent();
+                Some(self.compile(symbol_table)?)
+            } else {
+                None
+            };
+            Ok(IfExpression {
+                condition: Box::new(condition),
+                then_branch,
+                else_branch,
             })
         } else {
             self.get(symbol_table)
@@ -865,11 +862,6 @@ pub enum Statement {
         if_expr: Expression,
         then_expr: Expression,
     },
-    IfStatement {
-        condition: Expression,
-        then_branch: Vec<Statement>,
-        else_branch: Option<Vec<Statement>>,
-    },
     ForStatement {
         loop_var: Token,
         range: Expression,
@@ -886,7 +878,6 @@ impl Statement {
             Statement::FunctionStmt { function, .. } => function.name.line,
             Statement::ObjectStmt { name, .. } => name.line,
             Statement::GuardStatement { if_expr, .. } => if_expr.line(),
-            Statement::IfStatement { condition, .. } => condition.line(),
             Statement::ForStatement { loop_var, .. } => loop_var.line,
         }
     }
@@ -989,6 +980,11 @@ pub enum Expression {
         receiver: Box<Expression>,
         field: String,
     },
+    IfExpression {
+        condition: Box<Expression>,
+        then_branch: Vec<Statement>,
+        else_branch: Option<Vec<Statement>>,
+    },
 }
 
 impl Expression {
@@ -1010,6 +1006,7 @@ impl Expression {
             MapGet { .. } => 0,
             ListGet { .. } => 0,
             FieldGet { .. } => 0,
+            IfExpression { condition, .. } => condition.line(),
         }
     }
 }

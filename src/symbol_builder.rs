@@ -79,6 +79,7 @@ pub fn calculate_type(
     Ok(if declared_type != &Unknown {
         if declared_type != inferred_type {
             match (declared_type, inferred_type) {
+                (I64, Unknown) => I64,
                 (I32, I64) => I32, //need this?
                 (I32, Integer) => I32,
                 (U32, I64) => U32,
@@ -210,12 +211,13 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
                 infer_type(receiver, symbols)
             }
         }
-        Expression::Stop { .. } => TokenType::Unknown,
-        // Expression::PathMatch { .. } => TokenType::Unknown,
-        Expression::NamedParameter { .. } => TokenType::Unknown,
-        Expression::ListGet { .. } => TokenType::Unknown,
-        Expression::MapGet { .. } => TokenType::Unknown,
-        Expression::FieldGet { .. } => TokenType::Unknown,
+        Expression::Stop { .. } => Unknown,
+        // Expression::PathMatch { .. } => Unknown,
+        Expression::NamedParameter { .. } => Unknown,
+        Expression::ListGet { .. } => Unknown,
+        Expression::MapGet { .. } => Unknown,
+        Expression::FieldGet { .. } => Unknown,
         Expression::Range { lower, .. } => infer_type(lower, symbols),
+        Expression::IfExpression {  .. } => Unknown,
     }
 }

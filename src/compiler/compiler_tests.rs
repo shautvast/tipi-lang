@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use crate::DATE_FORMAT_TIMEZONE;
     use crate::compiler::{compile, run};
     use crate::errors::CompilerError::{IllegalArgumentsException, ReservedFunctionName};
     use crate::errors::CompilerErrorAtLine;
@@ -7,7 +8,6 @@ mod tests {
     use crate::errors::TipiLangError::{Compiler, Runtime};
     use crate::value::{Value, string};
     use chrono::DateTime;
-    use crate::DATE_FORMAT_TIMEZONE;
 
     #[test]
     fn literal_int() {
@@ -241,11 +241,9 @@ m["name"]"#);
             run(r#"let date:datetime = d"2025-11-09 16:44:28.000 +0100"
 date"#),
             Ok(Value::DateTime(Box::new(
-                DateTime::parse_from_str(
-                    "2025-11-09 16:44:28.000 +0100", DATE_FORMAT_TIMEZONE
-                )
-                .unwrap()
-                .into()
+                DateTime::parse_from_str("2025-11-09 16:44:28.000 +0100", DATE_FORMAT_TIMEZONE)
+                    .unwrap()
+                    .into()
             )))
         );
     }
@@ -420,9 +418,24 @@ sum
     #[test]
     fn global_fns_are_not_allowed() {
         let value = run(r#"fn now():"#);
-        assert_eq!(value, Err(Compiler(CompilerErrorAtLine { error: ReservedFunctionName("now".to_string()), line: 1 })));
+        assert_eq!(
+            value,
+            Err(Compiler(CompilerErrorAtLine {
+                error: ReservedFunctionName("now".to_string()),
+                line: 1
+            }))
+        );
     }
 
+    #[test]
+    fn test() {
+        run(r#"
+let a:i64 = if true:
+    42
+else:
+    0
+a"#).unwrap();
+    }
     // #[test]
     // fn package() {
     //     assert_eq!(run(r#"a.b.c()"#), Ok(Value::U32(48)));

@@ -5,7 +5,7 @@ use crate::compiler::assembly_pass::Op::{
     Dup, Equal, Get, Goto, GotoIf, GotoIfNot, Greater, GreaterEqual, Less, LessEqual, ListGet,
     Multiply, Negate, Not, NotEqual, Or, Pop, Print, Return, Shr, Subtract,
 };
-use crate::compiler::ast_pass::Expression::NamedParameter;
+use crate::compiler::ast_pass::Expression::{IfExpression, NamedParameter};
 use crate::compiler::ast_pass::{Expression, Function, Parameter, Statement};
 use crate::compiler::tokens::TokenType;
 use crate::compiler::tokens::TokenType::Unknown;
@@ -213,31 +213,6 @@ impl AsmPass {
             Statement::GuardStatement { .. } => {
                 unimplemented!("guard statement")
             }
-            Statement::IfStatement {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.compile_expression(namespace, condition, symbols, registry)?;
-
-                self.emit(Dup);
-                self.emit(GotoIfNot(0)); // placeholder
-                let goto_addr1 = self.chunk.code.len() - 1;
-                self.emit(Pop);
-                self.compile_statements(then_branch, symbols, registry, namespace)?;
-                self.emit(Goto(0));
-                let goto_addr2 = self.chunk.code.len() - 1; // placeholder
-                self.chunk.code[goto_addr1] = GotoIfNot(self.chunk.code.len());
-                if else_branch.is_some() {
-                    self.compile_statements(
-                        else_branch.as_ref().unwrap(),
-                        symbols,
-                        registry,
-                        namespace,
-                    )?;
-                }
-                self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
-            }
             Statement::ForStatement {
                 loop_var,
                 range,
@@ -282,6 +257,31 @@ impl AsmPass {
         registry: &mut AsmRegistry,
     ) -> Result<(), CompilerErrorAtLine> {
         match expression {
+            IfExpression {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.compile_expression(namespace, condition, symbols, registry)?;
+
+                self.emit(Dup);
+                self.emit(GotoIfNot(0)); // placeholder
+                let goto_addr1 = self.chunk.code.len() - 1;
+                self.emit(Pop);
+                self.compile_statements(then_branch, symbols, registry, namespace)?;
+                self.emit(Goto(0));
+                let goto_addr2 = self.chunk.code.len() - 1; // placeholder
+                self.chunk.code[goto_addr1] = GotoIfNot(self.chunk.code.len());
+                if else_branch.is_some() {
+                    self.compile_statements(
+                        else_branch.as_ref().unwrap(),
+                        symbols,
+                        registry,
+                        namespace,
+                    )?;
+                }
+                self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
+            }
             Expression::FunctionCall {
                 name, arguments, ..
             } => {
