@@ -191,11 +191,6 @@ impl AsmPass {
                     return Err(self.raise(UndeclaredVariable(name.to_string())));
                 }
             }
-            // replace with function
-            Statement::PrintStmt { value } => {
-                self.compile_expression(namespace, value, symbols, registry)?;
-                self.emit(Print);
-            }
             Statement::ExpressionStmt { expression } => {
                 self.compile_expression(namespace, expression, symbols, registry)?;
             }

@@ -848,9 +848,6 @@ pub enum Statement {
         var_type: TokenType,
         initializer: Expression,
     },
-    PrintStmt {
-        value: Expression,
-    },
     FunctionStmt {
         function: Function,
     },
@@ -874,7 +871,6 @@ impl Statement {
         match self {
             Statement::ExpressionStmt { expression } => expression.line(),
             Statement::VarStmt { name, .. } => name.line,
-            Statement::PrintStmt { value } => value.line(),
             Statement::FunctionStmt { function, .. } => function.name.line,
             Statement::ObjectStmt { name, .. } => name.line,
             Statement::GuardStatement { if_expr, .. } => if_expr.line(),
