@@ -1,7 +1,7 @@
 use crate::builtins::globals::GLOBAL_FUNCTIONS;
 use crate::compiler::ast_pass::Expression::{
-    Assignment, FieldGet, FunctionCall, IfExpression, LetExpression, ListGet, MapGet, MethodCall,
-    NamedParameter, Stop, Variable,
+    Assignment, FieldGet, FunctionCall, IfElseExpression, IfExpression, LetExpression, ListGet,
+    MapGet, MethodCall, NamedParameter, Stop, Variable,
 };
 use crate::compiler::tokens::TokenType::{
     Bang, Bool, Char, Colon, DateTime, Dot, Else, Eof, Eol, Equal, False, FloatingPoint, Fn, For,
@@ -128,7 +128,7 @@ impl AstCompiler {
         } else if self.match_token(&[TokenType::Pipe]) {
             self.guard_declaration(symbol_table)
         } else {
-            self.statement(symbol_table)
+            self.expr_statement(symbol_table)
         }
     }
 
@@ -284,15 +284,26 @@ impl AstCompiler {
         Ok(Statement::FunctionStmt { function })
     }
 
-    fn statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
-        if self.match_token(&[For]) {
-            self.for_statement(symbol_table)
-        } else {
-            self.expr_statement(symbol_table)
-        }
+    fn inc_indent(&mut self) {
+        self.indent.push(self.indent.last().unwrap() + 1);
     }
 
-    fn for_statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
+    fn expr_statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
+        let expr = if self.match_token(&[For]) {
+            self.for_expression(symbol_table)?
+        } else if self.match_token(&[Let]) {
+            let expr = self.let_exp(symbol_table)?;
+            if !self.is_at_end() {
+                self.consume(&Eol, Expected("end of line after expression."))?;
+            }
+            expr
+        } else {
+            self.expression(symbol_table)?
+        };
+        Ok(Statement::ExpressionStmt { expression: expr })
+    }
+
+    fn for_expression(&mut self, symbol_table: &mut SymbolTable) -> Expr {
         let loop_var = self.consume(&Identifier, Expected("loop variable name."))?;
         self.consume(&In, Expected("'in' after loop variable name."))?;
         let range = self.expression(symbol_table)?;
@@ -301,65 +312,49 @@ impl AstCompiler {
         self.inc_indent();
         let body = self.compile(symbol_table)?;
 
-        Ok(Statement::ForStatement {
+        Ok(Expression::ForStatement {
             loop_var,
-            range,
+            range: Box::new(range),
             body,
         })
     }
 
-    fn inc_indent(&mut self) {
-        self.indent.push(self.indent.last().unwrap() + 1);
-    }
-
-    fn expr_statement(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
-        let expr = self.let_exp(symbol_table)?;
-        if !self.is_at_end() {
-            self.consume(&Eol, Expected("end of line after expression."))?;
-        }
-        Ok(Statement::ExpressionStmt { expression: expr })
-    }
-
     fn let_exp(&mut self, symbol_table: &mut SymbolTable) -> Expr {
-        if self.match_token(&[Let]) {
-            if self.peek().token_type.is_type() {
-                return Err(self.raise(CompilerError::KeywordNotAllowedAsIdentifier(
-                    self.peek().token_type.clone(),
-                )));
-            }
-            let name_token = self.consume(&Identifier, Expected("variable name."))?;
+        if self.peek().token_type.is_type() {
+            return Err(self.raise(CompilerError::KeywordNotAllowedAsIdentifier(
+                self.peek().token_type.clone(),
+            )));
+        }
+        let name_token = self.consume(&Identifier, Expected("variable name."))?;
 
-            let declared_type = if self.check(&Colon) {
-                self.advance();
-                Some(self.advance().token_type.clone())
-            } else {
-                None
-            };
-
-            if self.match_token(&[Equal]) {
-                let initializer = self.expression(symbol_table)?;
-                let declared_type = declared_type.unwrap_or(Unknown);
-                let inferred_type = infer_type(&initializer, symbol_table);
-                let var_type =
-                    calculate_type(&declared_type, &inferred_type).map_err(|e| self.raise(e))?;
-                symbol_table.insert(
-                    name_token.lexeme.clone(),
-                    Symbol::Variable {
-                        name: name_token.lexeme.clone(),
-                        var_type: var_type.clone(),
-                    },
-                );
-
-                Ok(LetExpression {
-                    name: name_token,
-                    var_type,
-                    initializer: Box::new(initializer),
-                })
-            } else {
-                Err(self.raise(UninitializedVariable))?
-            }
+        let declared_type = if self.check(&Colon) {
+            self.advance();
+            Some(self.advance().token_type.clone())
         } else {
-            self.expression(symbol_table)
+            None
+        };
+
+        if self.match_token(&[Equal]) {
+            let initializer = self.expression(symbol_table)?;
+            let declared_type = declared_type.unwrap_or(Unknown);
+            let inferred_type = infer_type(&initializer, symbol_table);
+            let var_type =
+                calculate_type(&declared_type, &inferred_type).map_err(|e| self.raise(e))?;
+            symbol_table.insert(
+                name_token.lexeme.clone(),
+                Symbol::Variable {
+                    name: name_token.lexeme.clone(),
+                    var_type: var_type.clone(),
+                },
+            );
+
+            Ok(LetExpression {
+                name: name_token,
+                var_type,
+                initializer: Box::new(initializer),
+            })
+        } else {
+            Err(self.raise(UninitializedVariable))?
         }
     }
 
@@ -499,20 +494,23 @@ impl AstCompiler {
             self.inc_indent();
             let then_branch = self.compile(symbol_table)?;
 
-            let else_branch = if self.check(&Else) {
+            if self.check(&Else) {
                 self.consume(&Else, Expected("'else' after if condition."))?;
                 self.consume(&Colon, Expected("':' after 'else'."))?;
 
                 self.inc_indent();
-                Some(self.compile(symbol_table)?)
+
+                Ok(IfElseExpression {
+                    condition: Box::new(condition),
+                    then_branch,
+                    else_branch: Some(self.compile(symbol_table)?),
+                })
             } else {
-                None
-            };
-            Ok(IfExpression {
-                condition: Box::new(condition),
-                then_branch,
-                else_branch,
-            })
+                Ok(IfExpression {
+                    condition: Box::new(condition),
+                    then_branch,
+                })
+            }
         } else {
             self.get(symbol_table)
         }
@@ -854,11 +852,6 @@ pub enum Statement {
         if_expr: Expression,
         then_expr: Expression,
     },
-    ForStatement {
-        loop_var: Token,
-        range: Expression,
-        body: Vec<Statement>,
-    },
 }
 
 impl Statement {
@@ -868,7 +861,6 @@ impl Statement {
             Statement::FunctionStmt { function, .. } => function.name.line,
             Statement::ObjectStmt { name, .. } => name.line,
             Statement::GuardStatement { if_expr, .. } => if_expr.line(),
-            Statement::ForStatement { loop_var, .. } => loop_var.line,
         }
     }
 }
@@ -973,12 +965,21 @@ pub enum Expression {
     IfExpression {
         condition: Box<Expression>,
         then_branch: Vec<Statement>,
+    },
+    IfElseExpression {
+        condition: Box<Expression>,
+        then_branch: Vec<Statement>,
         else_branch: Option<Vec<Statement>>,
     },
     LetExpression {
         name: Token,
         var_type: TokenType,
         initializer: Box<Expression>,
+    },
+    ForStatement {
+        loop_var: Token,
+        range: Box<Expression>,
+        body: Vec<Statement>,
     },
 }
 
@@ -1002,7 +1003,9 @@ impl Expression {
             ListGet { .. } => 0,
             FieldGet { .. } => 0,
             IfExpression { condition, .. } => condition.line(),
+            IfElseExpression { condition, .. } => condition.line(),
             LetExpression { name, .. } => name.line,
+            Expression::ForStatement { loop_var, .. } => loop_var.line,
         }
     }
 }

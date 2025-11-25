@@ -2,11 +2,7 @@ use crate::compiler::ast_pass::{Expression, Parameter, Statement};
 use crate::builtins::lookup;
 use crate::errors::CompilerError;
 use crate::errors::CompilerError::{IncompatibleTypes, UndeclaredVariable};
-use crate::compiler::tokens::TokenType::{
-    Bool, DateTime, F32, F64, FloatingPoint, Greater, GreaterEqual, I32, I64, Integer, Less,
-    LessEqual, ListType, MapType, Minus, ObjectType, Plus, SignedInteger, StringType, U32, U64,
-    Unknown, UnsignedInteger,
-};
+use crate::compiler::tokens::TokenType::{Bool, DateTime, F32, F64, FloatingPoint, Greater, GreaterEqual, I32, I64, Integer, Less, LessEqual, ListType, MapType, Minus, ObjectType, Plus, SignedInteger, StringType, U32, U64, Unknown, UnsignedInteger, Void};
 use crate::compiler::tokens::{Token, TokenType};
 use log::debug;
 use std::collections::HashMap;
@@ -218,13 +214,14 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
             }
         }
         Expression::Stop { .. } => Unknown,
-        // Expression::PathMatch { .. } => Unknown,
         Expression::NamedParameter { .. } => Unknown,
         Expression::ListGet { .. } => Unknown,
         Expression::MapGet { .. } => Unknown,
         Expression::FieldGet { .. } => Unknown,
         Expression::Range { lower, .. } => infer_type(lower, symbols),
         Expression::IfExpression {  .. } => Unknown,
-        Expression::LetExpression { initializer,.. } => infer_type(initializer, symbols),
+        Expression::IfElseExpression {  .. } => Unknown,
+        Expression::LetExpression { .. } => Void,
+        Expression::ForStatement { .. } => Void,
     }
 }

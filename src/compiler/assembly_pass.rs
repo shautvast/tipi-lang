@@ -5,7 +5,7 @@ use crate::compiler::assembly_pass::Op::{
     Dup, Equal, Get, Goto, GotoIf, GotoIfNot, Greater, GreaterEqual, Less, LessEqual, ListGet,
     Multiply, Negate, Not, NotEqual, Or, Pop, Print, Return, Shr, Subtract,
 };
-use crate::compiler::ast_pass::Expression::{IfExpression, NamedParameter};
+use crate::compiler::ast_pass::Expression::{IfElseExpression, IfExpression, NamedParameter};
 use crate::compiler::ast_pass::{Expression, Function, Parameter, Statement};
 use crate::compiler::tokens::TokenType;
 use crate::compiler::tokens::TokenType::Unknown;
@@ -186,38 +186,6 @@ impl AsmPass {
             Statement::GuardStatement { .. } => {
                 unimplemented!("guard statement")
             }
-            Statement::ForStatement {
-                loop_var,
-                range,
-                body,
-            } => {
-                // 1. step var index
-                let step_const_index = self.emit_constant(Value::I64(1));
-                // 2. range expression
-                self.compile_expression(namespace, range, symbols, registry)?;
-                //save the constants for lower and upper bounds of the range
-                let start_index = self.chunk.constants.len() - 1;
-                let end_index = self.chunk.constants.len() - 2;
-
-                let name = loop_var.lexeme.as_str();
-                let loop_var_name_index = self.chunk.add_var(&loop_var.token_type, name);
-                self.vars.insert(name.to_string(), loop_var_name_index);
-
-                // 3. start index
-                self.emit(Constant(start_index));
-                self.emit(Assign(loop_var_name_index));
-
-                let return_addr = self.chunk.code.len();
-                self.compile_statements(body, symbols, registry, namespace)?;
-                self.emit(Get(loop_var_name_index));
-                self.emit(Constant(step_const_index));
-                self.emit(Add);
-                self.emit(Assign(loop_var_name_index));
-                self.emit(Constant(end_index));
-                self.emit(Get(loop_var_name_index));
-                self.emit(GreaterEqual);
-                self.emit(GotoIf(return_addr));
-            }
         }
         Ok(())
     }
@@ -231,6 +199,22 @@ impl AsmPass {
     ) -> Result<(), CompilerErrorAtLine> {
         match expression {
             IfExpression {
+                condition,
+                then_branch,
+            } => {
+                self.compile_expression(namespace, condition, symbols, registry)?;
+
+                self.emit(Dup);
+                self.emit(GotoIfNot(0)); // placeholder
+                let goto_addr1 = self.chunk.code.len() - 1;
+                self.emit(Pop);
+                self.compile_statements(then_branch, symbols, registry, namespace)?;
+                self.emit(Goto(0));
+                let goto_addr2 = self.chunk.code.len() - 1; // placeholder
+                self.chunk.code[goto_addr1] = GotoIfNot(self.chunk.code.len());
+                self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
+            }
+            IfElseExpression {
                 condition,
                 then_branch,
                 else_branch,
@@ -454,6 +438,38 @@ impl AsmPass {
                 // opposite order, because we have to assign last one first to the loop variable
                 self.compile_expression(namespace, upper, symbols, registry)?;
                 self.compile_expression(namespace, lower, symbols, registry)?;
+            }
+            Expression::ForStatement {
+                loop_var,
+                range,
+                body,
+            } => {
+                // 1. step var index
+                let step_const_index = self.emit_constant(Value::I64(1));
+                // 2. range expression
+                self.compile_expression(namespace, range, symbols, registry)?;
+                //save the constants for lower and upper bounds of the range
+                let start_index = self.chunk.constants.len() - 1;
+                let end_index = self.chunk.constants.len() - 2;
+
+                let name = loop_var.lexeme.as_str();
+                let loop_var_name_index = self.chunk.add_var(&loop_var.token_type, name);
+                self.vars.insert(name.to_string(), loop_var_name_index);
+
+                // 3. start index
+                self.emit(Constant(start_index));
+                self.emit(Assign(loop_var_name_index));
+
+                let return_addr = self.chunk.code.len();
+                self.compile_statements(body, symbols, registry, namespace)?;
+                self.emit(Get(loop_var_name_index));
+                self.emit(Constant(step_const_index));
+                self.emit(Add);
+                self.emit(Assign(loop_var_name_index));
+                self.emit(Constant(end_index));
+                self.emit(Get(loop_var_name_index));
+                self.emit(GreaterEqual);
+                self.emit(GotoIf(return_addr));
             }
         }
         Ok(())
