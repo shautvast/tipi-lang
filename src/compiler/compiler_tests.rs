@@ -428,7 +428,7 @@ sum
     }
 
     #[test]
-    fn test() {
+    fn test_if_expression_else() {
         run(r#"
 let a:i64 = if true:
     42

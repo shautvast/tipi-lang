@@ -1,7 +1,7 @@
 use crate::compiler::ast_pass::{Expression, Parameter, Statement};
 use crate::builtins::lookup;
 use crate::errors::CompilerError;
-use crate::errors::CompilerError::IncompatibleTypes;
+use crate::errors::CompilerError::{IncompatibleTypes, UndeclaredVariable};
 use crate::compiler::tokens::TokenType::{
     Bool, DateTime, F32, F64, FloatingPoint, Greater, GreaterEqual, I32, I64, Integer, Less,
     LessEqual, ListType, MapType, Minus, ObjectType, Plus, SignedInteger, StringType, U32, U64,
@@ -11,6 +11,7 @@ use crate::compiler::tokens::{Token, TokenType};
 use log::debug;
 use std::collections::HashMap;
 use std::ops::Deref;
+use crate::compiler::assembly_pass::Op::Assign;
 
 pub enum Symbol {
     Function {
@@ -40,13 +41,6 @@ fn make_qname(path: &str, name: &Token) -> String {
 pub fn build(path: &str, ast: &[Statement], symbols: &mut HashMap<String, Symbol>) {
     for statement in ast {
         match statement {
-            Statement::VarStmt { name, var_type, .. } => {
-                let key = make_qname(path, name);
-                symbols.entry(key).or_insert_with(|| Symbol::Variable {
-                    name: name.lexeme.to_string(),
-                    var_type: var_type.clone(),
-                });
-            }
             Statement::FunctionStmt { function } => {
                 symbols.insert(
                     make_qname(path, &function.name),
@@ -66,6 +60,18 @@ pub fn build(path: &str, ast: &[Statement], symbols: &mut HashMap<String, Symbol
                         fields: fields.to_vec(),
                     },
                 );
+            }
+            Statement::ExpressionStmt { expression } => {
+                match expression{
+                    Expression::LetExpression { name, var_type, initializer } => {
+                        let key = make_qname(path, name);
+                        symbols.entry(key).or_insert_with(|| Symbol::Variable {
+                            name: name.lexeme.to_string(),
+                            var_type: var_type.clone(),
+                        });
+                    }
+                    _ =>{}
+                }
             }
             _ => {}
         }
@@ -219,5 +225,6 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
         Expression::FieldGet { .. } => Unknown,
         Expression::Range { lower, .. } => infer_type(lower, symbols),
         Expression::IfExpression {  .. } => Unknown,
+        Expression::LetExpression { initializer,.. } => infer_type(initializer, symbols),
     }
 }

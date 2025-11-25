@@ -169,28 +169,6 @@ impl AsmPass {
     ) -> Result<(), CompilerErrorAtLine> {
         self.current_line = statement.line();
         match statement {
-            Statement::VarStmt {
-                name, initializer, ..
-            } => {
-                let name = name.lexeme.as_str();
-                let var = symbols.get(name);
-                if let Some(Symbol::Variable { var_type, .. }) = var {
-                    let inferred_type = infer_type(initializer, symbols);
-                    let calculated_type =
-                        calculate_type(var_type, &inferred_type).map_err(|e| self.raise(e))?;
-                    if var_type != &Unknown && var_type != &calculated_type {
-                        return Err(
-                            self.raise(IncompatibleTypes(var_type.clone(), calculated_type))
-                        );
-                    }
-                    let name_index = self.chunk.add_var(var_type, name);
-                    self.vars.insert(name.to_string(), name_index);
-                    self.compile_expression(namespace, initializer, symbols, registry)?;
-                    self.emit(Assign(name_index));
-                } else {
-                    return Err(self.raise(UndeclaredVariable(name.to_string())));
-                }
-            }
             Statement::ExpressionStmt { expression } => {
                 self.compile_expression(namespace, expression, symbols, registry)?;
             }
@@ -276,6 +254,28 @@ impl AsmPass {
                     )?;
                 }
                 self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
+            }
+            Expression::LetExpression {
+                name, initializer, ..
+            } => {
+                let name = name.lexeme.as_str();
+                let var = symbols.get(name);
+                if let Some(Symbol::Variable { var_type, .. }) = var {
+                    let inferred_type = infer_type(initializer, symbols);
+                    let calculated_type =
+                        calculate_type(var_type, &inferred_type).map_err(|e| self.raise(e))?;
+                    if var_type != &Unknown && var_type != &calculated_type {
+                        return Err(
+                            self.raise(IncompatibleTypes(var_type.clone(), calculated_type))
+                        );
+                    }
+                    let name_index = self.chunk.add_var(var_type, name);
+                    self.vars.insert(name.to_string(), name_index);
+                    self.compile_expression(namespace, initializer, symbols, registry)?;
+                    self.emit(Assign(name_index));
+                } else {
+                    return Err(self.raise(UndeclaredVariable(name.to_string())));
+                }
             }
             Expression::FunctionCall {
                 name, arguments, ..
