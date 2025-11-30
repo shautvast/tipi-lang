@@ -87,11 +87,11 @@ impl AstCompiler {
             debug!("AST {:?}", statements);
             Ok(statements)
         } else {
-            Err(self.raise(CompilerError::Failure))
+            Err(self.error_at_line(CompilerError::Failure))
         }
     }
 
-    fn raise(&self, error: CompilerError) -> CompilerErrorAtLine {
+    fn error_at_line(&self, error: CompilerError) -> CompilerErrorAtLine {
         CompilerErrorAtLine::raise(error, self.current_line())
     }
 
@@ -111,7 +111,7 @@ impl AstCompiler {
             indent_on_line += 1;
         }
         if indent_on_line > expected_indent {
-            Err(self.raise(UnexpectedIndent(indent_on_line, expected_indent)))
+            Err(self.error_at_line(UnexpectedIndent(indent_on_line, expected_indent)))
         } else if indent_on_line < expected_indent {
             self.indent.pop();
             Ok(None)
@@ -148,7 +148,7 @@ impl AstCompiler {
             } else if self.match_token(&[TokenType::Question]) {
                 self.query_guard_expr(symbol_table)
             } else {
-                Err(self.raise(Expected("-> or ?")))
+                Err(self.error_at_line(Expected("-> or ?")))
             };
         }
         Ok(Stop {
@@ -181,7 +181,7 @@ impl AstCompiler {
     }
 
     fn match_expression(&mut self) -> Expr {
-        Err(self.raise(Expected("unimplemented")))
+        Err(self.error_at_line(Expected("unimplemented")))
     }
 
     fn object_declaration(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
@@ -208,7 +208,7 @@ impl AstCompiler {
                 if field_type.is_type() {
                     self.advance();
                 } else {
-                    Err(self.raise(Expected("a type")))?
+                    Err(self.error_at_line(Expected("a type")))?
                 }
                 fields.push(Parameter {
                     name: field_name,
@@ -236,7 +236,7 @@ impl AstCompiler {
     fn function_declaration(&mut self, symbol_table: &mut SymbolTable) -> Stmt {
         let name_token = self.consume(&Identifier, Expected("function name."))?;
         if GLOBAL_FUNCTIONS.contains_key(name_token.lexeme.as_str()) {
-            return Err(self.raise(CompilerError::ReservedFunctionName(
+            return Err(self.error_at_line(CompilerError::ReservedFunctionName(
                 name_token.lexeme.clone(),
             )));
         }
@@ -244,7 +244,7 @@ impl AstCompiler {
         let mut parameters = vec![];
         while !self.check(&RightParen) {
             if parameters.len() >= 25 {
-                return Err(self.raise(TooManyParameters));
+                return Err(self.error_at_line(TooManyParameters));
             }
             let parm_name = self.consume(&Identifier, Expected("a parameter name."))?;
 
@@ -292,11 +292,7 @@ impl AstCompiler {
         let expr = if self.match_token(&[For]) {
             self.for_expression(symbol_table)?
         } else if self.match_token(&[Let]) {
-            let expr = self.let_exp(symbol_table)?;
-            if !self.is_at_end() {
-                self.consume(&Eol, Expected("end of line after expression."))?;
-            }
-            expr
+            self.let_exp(symbol_table)?
         } else {
             self.expression(symbol_table)?
         };
@@ -321,9 +317,11 @@ impl AstCompiler {
 
     fn let_exp(&mut self, symbol_table: &mut SymbolTable) -> Expr {
         if self.peek().token_type.is_type() {
-            return Err(self.raise(CompilerError::KeywordNotAllowedAsIdentifier(
-                self.peek().token_type.clone(),
-            )));
+            return Err(
+                self.error_at_line(CompilerError::KeywordNotAllowedAsIdentifier(
+                    self.peek().token_type.clone(),
+                )),
+            );
         }
         let name_token = self.consume(&Identifier, Expected("variable name."))?;
 
@@ -337,9 +335,10 @@ impl AstCompiler {
         if self.match_token(&[Equal]) {
             let initializer = self.expression(symbol_table)?;
             let declared_type = declared_type.unwrap_or(Unknown);
-            let inferred_type = infer_type(&initializer, symbol_table);
-            let var_type =
-                calculate_type(&declared_type, &inferred_type).map_err(|e| self.raise(e))?;
+            let inferred_type =
+                infer_type(&initializer, symbol_table).map_err(|e| self.error_at_line(e))?;
+            let var_type = calculate_type(&declared_type, &inferred_type)
+                .map_err(|e| self.error_at_line(e))?;
             symbol_table.insert(
                 name_token.lexeme.clone(),
                 Symbol::Variable {
@@ -354,7 +353,7 @@ impl AstCompiler {
                 initializer: Box::new(initializer),
             })
         } else {
-            Err(self.raise(UninitializedVariable))?
+            Err(self.error_at_line(UninitializedVariable))?
         }
     }
 
@@ -399,7 +398,7 @@ impl AstCompiler {
                     value: Box::new(right),
                 })
             } else {
-                Err(self.raise(CompilerError::Failure))
+                Err(self.error_at_line(CompilerError::Failure))
             }
         } else {
             Ok(expr)
@@ -503,7 +502,7 @@ impl AstCompiler {
                 Ok(IfElseExpression {
                     condition: Box::new(condition),
                     then_branch,
-                    else_branch: Some(self.compile(symbol_table)?),
+                    else_branch: self.compile(symbol_table)?,
                 })
             } else {
                 Ok(IfExpression {
@@ -555,10 +554,16 @@ impl AstCompiler {
                     key: Box::new(index),
                 },
                 _ => {
-                    return Err(self.raise(CompilerError::IllegalTypeToIndex(var_type.to_string())));
+                    return Err(
+                        self.error_at_line(CompilerError::IllegalTypeToIndex(var_type.to_string()))
+                    );
                 }
             },
-            _ => return Err(self.raise(CompilerError::IllegalTypeToIndex("Unknown".to_string()))),
+            _ => {
+                return Err(
+                    self.error_at_line(CompilerError::IllegalTypeToIndex("Unknown".to_string()))
+                );
+            }
         };
         self.consume(&RightBracket, Expected("']' after index."))?;
         Ok(get)
@@ -613,7 +618,7 @@ impl AstCompiler {
                     self.previous()
                         .lexeme
                         .parse()
-                        .map_err(|e| self.raise(ParseError(format!("{:?}", e))))?,
+                        .map_err(|e| self.error_at_line(ParseError(format!("{:?}", e))))?,
                 ),
             }
         } else if self.match_token(&[U32]) {
@@ -622,7 +627,7 @@ impl AstCompiler {
                 literaltype: Integer,
                 value: Value::U32(
                     u32::from_str_radix(self.previous().lexeme.trim_start_matches("0x"), 16)
-                        .map_err(|e| self.raise(ParseError(format!("{:?}", e))))?,
+                        .map_err(|e| self.error_at_line(ParseError(format!("{:?}", e))))?,
                 ),
             }
         } else if self.match_token(&[U64]) {
@@ -631,7 +636,7 @@ impl AstCompiler {
                 literaltype: Integer,
                 value: Value::U64(
                     u64::from_str_radix(self.previous().lexeme.trim_start_matches("0x"), 16)
-                        .map_err(|e| self.raise(ParseError(format!("{:?}", e))))?,
+                        .map_err(|e| self.error_at_line(ParseError(format!("{:?}", e))))?,
                 ),
             }
         } else if self.match_token(&[FloatingPoint]) {
@@ -642,7 +647,7 @@ impl AstCompiler {
                     self.previous()
                         .lexeme
                         .parse()
-                        .map_err(|e| self.raise(ParseError(format!("{:?}", e))))?,
+                        .map_err(|e| self.error_at_line(ParseError(format!("{:?}", e))))?,
                 ),
             }
         } else if self.match_token(&[StringType]) {
@@ -663,7 +668,9 @@ impl AstCompiler {
                 literaltype: DateTime,
                 value: Value::DateTime(Box::new(
                     chrono::DateTime::parse_from_str(&self.previous().lexeme, DATE_FORMAT_TIMEZONE)
-                        .map_err(|_| self.raise(ParseError(self.previous().lexeme.clone())))?
+                        .map_err(|_| {
+                            self.error_at_line(ParseError(self.previous().lexeme.clone()))
+                        })?
                         .into(),
                 )),
             }
@@ -766,7 +773,7 @@ impl AstCompiler {
         let mut arguments = vec![];
         while !self.match_token(&[RightParen]) {
             if arguments.len() >= 25 {
-                return Err(self.raise(TooManyParameters));
+                return Err(self.error_at_line(TooManyParameters));
             }
             let arg = self.expression(symbol_table)?;
             arguments.push(arg);
@@ -789,7 +796,7 @@ impl AstCompiler {
             self.advance();
         } else {
             self.had_error = true;
-            return Err(self.raise(message));
+            return Err(self.error_at_line(message));
         }
         Ok(self.previous().clone())
     }
@@ -969,7 +976,7 @@ pub enum Expression {
     IfElseExpression {
         condition: Box<Expression>,
         then_branch: Vec<Statement>,
-        else_branch: Option<Vec<Statement>>,
+        else_branch: Vec<Statement>,
     },
     LetExpression {
         name: Token,

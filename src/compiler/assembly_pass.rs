@@ -229,14 +229,12 @@ impl AsmPass {
                 self.emit(Goto(0));
                 let goto_addr2 = self.chunk.code.len() - 1; // placeholder
                 self.chunk.code[goto_addr1] = GotoIfNot(self.chunk.code.len());
-                if else_branch.is_some() {
-                    self.compile_statements(
-                        else_branch.as_ref().unwrap(),
-                        symbols,
-                        registry,
-                        namespace,
-                    )?;
-                }
+                self.compile_statements(
+                    else_branch,
+                    symbols,
+                    registry,
+                    namespace,
+                )?;
                 self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
             }
             Expression::LetExpression {
@@ -245,12 +243,12 @@ impl AsmPass {
                 let name = name.lexeme.as_str();
                 let var = symbols.get(name);
                 if let Some(Symbol::Variable { var_type, .. }) = var {
-                    let inferred_type = infer_type(initializer, symbols);
+                    let inferred_type = infer_type(initializer, symbols).map_err(|e| self.error_at_line(e))?;
                     let calculated_type =
-                        calculate_type(var_type, &inferred_type).map_err(|e| self.raise(e))?;
+                        calculate_type(var_type, &inferred_type).map_err(|e| self.error_at_line(e))?;
                     if var_type != &Unknown && var_type != &calculated_type {
                         return Err(
-                            self.raise(IncompatibleTypes(var_type.clone(), calculated_type))
+                            self.error_at_line(IncompatibleTypes(var_type.clone(), calculated_type))
                         );
                     }
                     let name_index = self.chunk.add_var(var_type, name);
@@ -258,7 +256,7 @@ impl AsmPass {
                     self.compile_expression(namespace, initializer, symbols, registry)?;
                     self.emit(Assign(name_index));
                 } else {
-                    return Err(self.raise(UndeclaredVariable(name.to_string())));
+                    return Err(self.error_at_line(UndeclaredVariable(name.to_string())));
                 }
             }
             Expression::FunctionCall {
@@ -290,7 +288,7 @@ impl AsmPass {
                             self.emit(Call(name_index, fun.arity()));
                         } else {
                             return Err(
-                                self.raise(CompilerError::FunctionNotFound(name.to_string()))
+                                self.error_at_line(CompilerError::FunctionNotFound(name.to_string()))
                             );
                         }
                     }
@@ -303,7 +301,7 @@ impl AsmPass {
                 ..
             } => {
                 self.compile_expression(namespace, receiver, symbols, registry)?;
-                let receiver_type = infer_type(receiver, symbols).to_string();
+                let receiver_type = infer_type(receiver, symbols).map_err(|e|self.error_at_line(e))?.to_string();
 
                 let type_index = self.chunk.find_constant(&receiver_type).unwrap_or_else(|| {
                     self.chunk
@@ -314,9 +312,9 @@ impl AsmPass {
                     self.chunk
                         .add_constant(Value::String(method_name.to_string()))
                 });
-                let signature = lookup(&receiver_type, method_name).map_err(|e| self.raise(e))?;
+                let signature = lookup(&receiver_type, method_name).map_err(|e| self.error_at_line(e))?;
                 if signature.arity() != arguments.len() {
-                    return Err(self.raise(CompilerError::IllegalArgumentsException(
+                    return Err(self.error_at_line(CompilerError::IllegalArgumentsException(
                         format!("{}.{}", receiver_type, method_name),
                         signature.parameters.len(),
                         arguments.len(),
@@ -336,7 +334,7 @@ impl AsmPass {
                 if let Some(name_index) = name_index {
                     self.emit(Get(*name_index));
                 } else {
-                    return Err(self.raise(UndeclaredVariable(name.to_string())));
+                    return Err(self.error_at_line(UndeclaredVariable(name.to_string())));
                 }
             }
             Expression::Assignment {
@@ -349,7 +347,7 @@ impl AsmPass {
                 if let Some(name_index) = name_index {
                     self.emit(Assign(*name_index));
                 } else {
-                    return Err(self.raise(UndeclaredVariable(variable_name.to_string())));
+                    return Err(self.error_at_line(UndeclaredVariable(variable_name.to_string())));
                 }
             }
             Expression::Literal { value, .. } => {
@@ -402,7 +400,7 @@ impl AsmPass {
                             self.emit(Assign(*index));
                             self.emit(Pop);
                         } else {
-                            return Err(self.raise(UndeclaredVariable("".to_string())));
+                            return Err(self.error_at_line(UndeclaredVariable("".to_string())));
                         }
                     }
                     TokenType::EqualEqual => self.emit(Equal),
@@ -489,10 +487,10 @@ impl AsmPass {
             for parameter in parameters {
                 if let NamedParameter { name, value, .. } = argument {
                     if name.lexeme == parameter.name.lexeme {
-                        let value_type = infer_type(value, symbols);
+                        let value_type = infer_type(value, symbols).map_err(|e| self.error_at_line(e))?;
                         if parameter.var_type != value_type {
                             return Err(self
-                                .raise(IncompatibleTypes(parameter.var_type.clone(), value_type)));
+                                .error_at_line(IncompatibleTypes(parameter.var_type.clone(), value_type)));
                         } else {
                             self.compile_expression(namespace, argument, symbols, registry)?;
                             break;
@@ -517,7 +515,7 @@ impl AsmPass {
         index
     }
 
-    fn raise(&self, error: CompilerError) -> CompilerErrorAtLine {
+    fn error_at_line(&self, error: CompilerError) -> CompilerErrorAtLine {
         CompilerErrorAtLine::raise(error, self.current_line)
     }
 }

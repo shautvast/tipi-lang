@@ -118,7 +118,7 @@ pub fn calculate_type(
     })
 }
 
-pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> TokenType {
+pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Result<TokenType, CompilerError> {
     match expr {
         Expression::Binary {
             left,
@@ -126,35 +126,35 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
             right,
             ..
         } => {
-            let left_type = infer_type(left, symbols);
-            let right_type = infer_type(right, symbols);
+            let left_type = infer_type(left, symbols)?;
+            let right_type = infer_type(right, symbols)?;
             if [Greater, Less, GreaterEqual, LessEqual].contains(&operator.token_type) {
-                Bool
+                Ok(Bool)
             } else if left_type == right_type {
                 // map to determined numeric type if yet undetermined (32 or 64 bits)
-                match left_type {
+                Ok(match left_type {
                     FloatingPoint => F64,
                     Integer => I64,
                     _ => left_type,
-                }
+                })
             } else if let Plus = operator.token_type {
                 // includes string concatenation with numbers
                 // followed by type coercion to 64 bits for numeric types
                 debug!("coerce {} : {}", left_type, right_type);
                 match (left_type, right_type) {
-                    (_, StringType) => StringType,
-                    (StringType, _) => StringType,
-                    (FloatingPoint, _) => F64,
-                    (Integer, FloatingPoint) => F64,
-                    (Integer, _) => I64,
-                    (I64, Integer) => I64,
-                    (F64, _) => F64,
-                    (U64, U32) => U64,
-                    (I64, I32) => I64,
+                    (_, StringType) => Ok(StringType),
+                    (StringType, _) => Ok(StringType),
+                    (FloatingPoint, _) => Ok(F64),
+                    (Integer, FloatingPoint) => Ok(F64),
+                    (Integer, _) => Ok(I64),
+                    (I64, Integer) => Ok(I64),
+                    (F64, _) => Ok(F64),
+                    (U64, U32) => Ok(U64),
+                    (I64, I32) => Ok(I64),
                     // could add a date and a duration. future work
                     // could add a List and a value. also future work
                     // could add a Map and a tuple. Will I add tuple types? Future work!
-                    _ => panic!("Unexpected coercion"),
+                    _ => Err(CompilerError::Failure), //TODO better error message
                 }
                 // could have done some fall through here, but this will fail less gracefully,
                 // so if my thinking is wrong or incomplete it will panic
@@ -162,40 +162,40 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
                 // type coercion to 64 bits for numeric types
                 debug!("coerce {} : {}", left_type, right_type);
                 match (left_type, right_type) {
-                    (FloatingPoint, _) => F64,
-                    (Integer, FloatingPoint) => F64,
-                    (Integer, I64) => I64,
-                    (I64, FloatingPoint) => F64,
-                    (F64, _) => F64,
-                    (U64, U32) => U64,
-                    (I64, I32) => I64,
-                    (I64, Integer) => I64,
-                    _ => panic!("Unexpected coercion"),
+                    (FloatingPoint, _) => Ok(F64),
+                    (Integer, FloatingPoint) => Ok(F64),
+                    (Integer, I64) => Ok(I64),
+                    (I64, FloatingPoint) => Ok(F64),
+                    (F64, _) => Ok(F64),
+                    (U64, U32) => Ok(U64),
+                    (I64, I32) => Ok(I64),
+                    (I64, Integer) => Ok(I64),
+                    _ => Err(CompilerError::Failure), // TODO
                 }
             }
         }
         Expression::Grouping { expression, .. } => infer_type(expression, symbols),
-        Expression::Literal { literaltype, .. } => literaltype.clone(),
-        Expression::List { literaltype, .. } => literaltype.clone(),
-        Expression::Map { literaltype, .. } => literaltype.clone(),
+        Expression::Literal { literaltype, .. } => Ok(literaltype.clone()),
+        Expression::List { literaltype, .. } => Ok(literaltype.clone()),
+        Expression::Map { literaltype, .. } => Ok(literaltype.clone()),
         Expression::Unary {
             right, operator, ..
         } => {
-            let literal_type = infer_type(right, symbols);
+            let literal_type = infer_type(right, symbols)?;
             if literal_type == Integer && operator.token_type == Minus {
-                SignedInteger
+                Ok(SignedInteger)
             } else {
-                UnsignedInteger
+                Ok(UnsignedInteger)
             }
         }
-        Expression::Variable { var_type, .. } => var_type.clone(),
+        Expression::Variable { var_type, .. } => Ok(var_type.clone()),
         Expression::Assignment { value, .. } => infer_type(value, symbols),
         Expression::FunctionCall { name, .. } => {
             let symbol = symbols.get(name);
             match symbol {
-                Some(Symbol::Function { return_type, .. }) => return_type.clone(),
-                Some(Symbol::Object { name, .. }) => ObjectType(name.clone()),
-                _ => Unknown,
+                Some(Symbol::Function { return_type, .. }) => Ok(return_type.clone()),
+                Some(Symbol::Object { name, .. }) => Ok(ObjectType(name.clone())),
+                _ => Err(CompilerError::Failure), // TODO
             }
         }
         Expression::MethodCall {
@@ -205,7 +205,7 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
         } => {
             if let Expression::Literal { value, .. } = receiver.deref() {
                 if let Ok(signature) = lookup(&value.to_string(), method_name) {
-                    signature.return_type.clone()
+                    Ok(signature.return_type.clone())
                 } else {
                     unreachable!() //?
                 }
@@ -213,15 +213,34 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Token
                 infer_type(receiver, symbols)
             }
         }
-        Expression::Stop { .. } => Unknown,
-        Expression::NamedParameter { .. } => Unknown,
-        Expression::ListGet { .. } => Unknown,
-        Expression::MapGet { .. } => Unknown,
-        Expression::FieldGet { .. } => Unknown,
+        Expression::Stop { .. } => Ok(Unknown),
+        Expression::NamedParameter { .. } => Ok(Unknown),
+        Expression::ListGet { .. } => Ok(Unknown),
+        Expression::MapGet { .. } => Ok(Unknown),
+        Expression::FieldGet { .. } => Ok(Unknown),
         Expression::Range { lower, .. } => infer_type(lower, symbols),
-        Expression::IfExpression {  .. } => Unknown,
-        Expression::IfElseExpression {  .. } => Unknown,
-        Expression::LetExpression { .. } => Void,
-        Expression::ForStatement { .. } => Void,
+        Expression::IfExpression {  .. } => Ok(Unknown),
+        Expression::IfElseExpression {  then_branch, else_branch, .. } => {
+            let mut then_type = Void;
+            for statement in then_branch {
+                if let Statement::ExpressionStmt { expression } = statement {
+                    then_type = infer_type(expression, symbols)?
+                }
+            }
+
+            let mut else_type = Void;
+            for statement in else_branch {
+                if let Statement::ExpressionStmt { expression } = statement {
+                    else_type = infer_type(expression, symbols)?
+                }
+            }
+            if then_type != else_type{
+                Err(CompilerError::IfElseBranchesDoNotMatch(then_type, else_type))
+            } else {
+                Ok(then_type)
+            }
+        },
+        Expression::LetExpression { .. } => Ok(Void),
+        Expression::ForStatement { .. } => Ok(Void),
     }
 }

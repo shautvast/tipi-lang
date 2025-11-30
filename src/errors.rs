@@ -73,6 +73,9 @@ pub enum CompilerError {
     IllegalArgumentsException(String, usize, usize),
     #[error("Function name {0} is a global function and cannot be used here.")]
     ReservedFunctionName(String),
+    #[error("The if expression branches do not match. Was {0} and {1}")]
+    IfElseBranchesDoNotMatch(TokenType, TokenType),
+
 }
 
 #[derive(Error, Debug, PartialEq)]
