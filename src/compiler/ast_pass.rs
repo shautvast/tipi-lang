@@ -7,7 +7,7 @@ use crate::compiler::tokens::TokenType::{
     Bang, Bool, Char, Colon, DateTime, Dot, Else, Eof, Eol, Equal, False, FloatingPoint, Fn, For,
     Greater, GreaterEqual, GreaterGreater, Identifier, If, In, Indent, Integer, LeftBrace,
     LeftBracket, LeftParen, Less, LessEqual, LessLess, Let, ListType, MapType, Minus, Object, Plus,
-    Print, Range, RightBrace, RightBracket, RightParen, SingleRightArrow, Slash, Star, StringType,
+    Range, RightBrace, RightBracket, RightParen, SingleRightArrow, Slash, Star, StringType,
     True, U32, U64, Unknown,
 };
 use crate::compiler::tokens::{Token, TokenType};

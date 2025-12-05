@@ -8,28 +8,6 @@ use std::cell::RefMut;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 
-macro_rules! mut_list_fn {
-    (mut $list:ident, mut $args:ident => $body:expr) => {
-        |self_val: RefMut<Value>, mut $args: Vec<Value>| -> Result<Value, RuntimeError> {
-            match self_val {
-                Value::List(mut $list) => $body,
-                _ => Err(expected_a_list()),
-            }
-        }
-    };
-}
-
-macro_rules! list_fn {
-    ($list:ident, $args:ident => $body:expr) => {
-        |self_val: Ref<Value>, $args: Vec<Value>| -> Result<Value, RuntimeError> {
-            match self_val {
-                Value::List($list) => $body,
-                _ => Err(expected_a_list()),
-            }
-        }
-    };
-}
-
 pub(crate) fn list_functions() -> FunctionMap {
     let mut list_functions: FunctionMap = HashMap::new();
     let functions = &mut list_functions;

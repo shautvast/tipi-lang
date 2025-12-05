@@ -2,7 +2,7 @@ mod string;
 mod list;
 pub(crate) mod globals;
 
-use std::cell::{Ref, RefCell, RefMut};
+use std::cell::{RefCell, RefMut};
 use crate::builtins::string::string_functions;
 use crate::errors::{CompilerError, RuntimeError};
 use crate::compiler::tokens::TokenType;

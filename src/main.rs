@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::sync::Arc;
 use tipi_lang::compiler::assembly_pass::AsmChunk;
-use tipi_lang::compiler::{compile, compile_sourcedir, map_underlying, run};
+use tipi_lang::compiler::{compile_sourcedir, map_underlying, run};
 use tipi_lang::errors::TipiLangError;
 use tipi_lang::vm::interpret_async;
 

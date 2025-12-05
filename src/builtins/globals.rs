@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefMut};
+use std::cell::{RefMut};
 use crate::builtins::{FunctionMap, Signature, add};
 use crate::compiler::tokens::TokenType::{DateTime, StringType, Void};
 use crate::errors::RuntimeError;
@@ -31,7 +31,7 @@ fn print(_self_val: RefMut<Value>, args: Vec<Value>) -> Result<Value, RuntimeErr
 }
 
 fn now(_self_val: RefMut<Value>, _args: Vec<Value>) -> Result<Value, RuntimeError> {
-    Ok(Value::DateTime(Box::new(chrono::DateTime::from(
+    Ok(Value::DateTime(Box::new(
         chrono::Utc::now(),
-    ))))
+    )))
 }

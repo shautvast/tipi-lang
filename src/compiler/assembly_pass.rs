@@ -3,7 +3,7 @@ use crate::builtins::lookup;
 use crate::compiler::assembly_pass::Op::{
     Add, And, Assign, BitAnd, BitOr, BitXor, Call, CallBuiltin, Constant, DefList, DefMap, Divide,
     Dup, Equal, Get, Goto, GotoIf, GotoIfNot, Greater, GreaterEqual, Less, LessEqual, ListGet,
-    Multiply, Negate, Not, NotEqual, Or, Pop, Print, Return, Shr, Subtract,
+    Multiply, Negate, Not, NotEqual, Or, Pop, Return, Shr, Subtract,
 };
 use crate::compiler::ast_pass::Expression::{IfElseExpression, IfExpression, NamedParameter};
 use crate::compiler::ast_pass::{Expression, Function, Parameter, Statement};
@@ -529,7 +529,6 @@ pub enum Op {
     Multiply,
     Divide,
     Negate,
-    Print,
     Return,
     Call(usize, usize),
     And,

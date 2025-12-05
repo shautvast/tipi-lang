@@ -5,11 +5,10 @@ use crate::compiler::tokens::TokenType;
 use crate::errors::{RuntimeError, ValueError};
 use crate::value::{Object, Value};
 use arc_swap::Guard;
-use std::cell::{RefCell, RefMut};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use tracing::debug;
 
 pub async fn interpret_async(
     registry: Guard<Arc<HashMap<String, AsmChunk>>>,
@@ -130,11 +129,6 @@ impl Vm {
                 Op::Less => binary_op(self, |a, b| Ok(Value::Bool(a < b))),
                 Op::LessEqual => binary_op(self, |a, b| Ok(Value::Bool(a <= b))),
                 Op::NotEqual => binary_op(self, |a, b| Ok(Value::Bool(a != b))),
-                Op::Print => {
-                    debug!("print {:?}", self.stack);
-                    let v = self.pop().borrow().clone();
-                    println!("{}", v);
-                }
                 Op::DefList(len) => {
                     let mut list = vec![];
                     for _ in 0..*len {

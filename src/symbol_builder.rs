@@ -1,13 +1,16 @@
-use crate::compiler::ast_pass::{Expression, Parameter, Statement};
 use crate::builtins::lookup;
-use crate::errors::CompilerError;
-use crate::errors::CompilerError::{IncompatibleTypes, UndeclaredVariable};
-use crate::compiler::tokens::TokenType::{Bool, DateTime, F32, F64, FloatingPoint, Greater, GreaterEqual, I32, I64, Integer, Less, LessEqual, ListType, MapType, Minus, ObjectType, Plus, SignedInteger, StringType, U32, U64, Unknown, UnsignedInteger, Void};
+use crate::compiler::ast_pass::{Expression, Parameter, Statement};
+use crate::compiler::tokens::TokenType::{
+    Bool, DateTime, F32, F64, FloatingPoint, Greater, GreaterEqual, I32, I64, Integer, Less,
+    LessEqual, ListType, MapType, Minus, ObjectType, Plus, SignedInteger, StringType, U32, U64,
+    Unknown, UnsignedInteger, Void,
+};
 use crate::compiler::tokens::{Token, TokenType};
+use crate::errors::CompilerError;
+use crate::errors::CompilerError::IncompatibleTypes;
 use log::debug;
 use std::collections::HashMap;
 use std::ops::Deref;
-use crate::compiler::assembly_pass::Op::Assign;
 
 pub enum Symbol {
     Function {
@@ -57,17 +60,14 @@ pub fn build(path: &str, ast: &[Statement], symbols: &mut HashMap<String, Symbol
                     },
                 );
             }
-            Statement::ExpressionStmt { expression } => {
-                match expression{
-                    Expression::LetExpression { name, var_type, initializer } => {
-                        let key = make_qname(path, name);
-                        symbols.entry(key).or_insert_with(|| Symbol::Variable {
-                            name: name.lexeme.to_string(),
-                            var_type: var_type.clone(),
-                        });
-                    }
-                    _ =>{}
-                }
+            Statement::ExpressionStmt {
+                expression: Expression::LetExpression { name, var_type, .. },
+            } => {
+                let key = make_qname(path, name);
+                symbols.entry(key).or_insert_with(|| Symbol::Variable {
+                    name: name.lexeme.to_string(),
+                    var_type: var_type.clone(),
+                });
             }
             _ => {}
         }
@@ -118,7 +118,10 @@ pub fn calculate_type(
     })
 }
 
-pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Result<TokenType, CompilerError> {
+pub fn infer_type(
+    expr: &Expression,
+    symbols: &HashMap<String, Symbol>,
+) -> Result<TokenType, CompilerError> {
     match expr {
         Expression::Binary {
             left,
@@ -219,8 +222,12 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Resul
         Expression::MapGet { .. } => Ok(Unknown),
         Expression::FieldGet { .. } => Ok(Unknown),
         Expression::Range { lower, .. } => infer_type(lower, symbols),
-        Expression::IfExpression {  .. } => Ok(Unknown),
-        Expression::IfElseExpression {  then_branch, else_branch, .. } => {
+        Expression::IfExpression { .. } => Ok(Unknown),
+        Expression::IfElseExpression {
+            then_branch,
+            else_branch,
+            ..
+        } => {
             let mut then_type = Void;
             for statement in then_branch {
                 if let Statement::ExpressionStmt { expression } = statement {
@@ -234,12 +241,14 @@ pub fn infer_type(expr: &Expression, symbols: &HashMap<String, Symbol>) -> Resul
                     else_type = infer_type(expression, symbols)?
                 }
             }
-            if then_type != else_type{
-                Err(CompilerError::IfElseBranchesDoNotMatch(then_type, else_type))
+            if then_type != else_type {
+                Err(CompilerError::IfElseBranchesDoNotMatch(
+                    then_type, else_type,
+                ))
             } else {
                 Ok(then_type)
             }
-        },
+        }
         Expression::LetExpression { .. } => Ok(Void),
         Expression::ForStatement { .. } => Ok(Void),
     }

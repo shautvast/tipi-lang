@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefMut};
+use std::cell::{RefMut};
 use crate::builtins::{FunctionMap, Parameter, Signature, add, expected};
 use crate::errors::RuntimeError;
 use crate::compiler::tokens::TokenType::{StringType, U64};

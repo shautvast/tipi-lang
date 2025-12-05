@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use walkdir::WalkDir;
-use crate::{compiler, symbol_builder, AsmRegistry, TIPI_EXT};
+use crate::{symbol_builder, AsmRegistry, TIPI_EXT};
 use crate::compiler::assembly_pass::AsmChunk;
 use crate::errors::TipiLangError;
 use crate::errors::TipiLangError::Platform;
