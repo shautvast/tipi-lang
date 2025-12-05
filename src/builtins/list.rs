@@ -49,8 +49,12 @@ pub(crate) fn list_functions() -> FunctionMap {
 
 fn remove(mut self_val: RefMut<Value>, mut args: Vec<Value>) -> Result<Value, RuntimeError> {
     if let Value::List(list) = self_val.deref_mut() {
-        list.remove(args.remove(0).cast_usize()?);
-        Ok(Value::Void)
+        let index= args.remove(0).cast_usize()?;
+        if index >= list.len() {
+            return Err(RuntimeError::IndexOutOfBounds(index, list.len()));
+        }
+        list.remove(index);
+        Ok(self_val.deref().clone())
     } else {
         Err(expected_a_list())
     }
@@ -59,7 +63,7 @@ fn remove(mut self_val: RefMut<Value>, mut args: Vec<Value>) -> Result<Value, Ru
 fn push(mut self_val: RefMut<Value>, mut args: Vec<Value>) -> Result<Value, RuntimeError> {
     if let Value::List(list) = self_val.deref_mut() {
         list.push(args.remove(0));
-        Ok(Value::Void)
+        Ok(self_val.deref().clone())
     } else {
         Err(expected_a_list())
     }
