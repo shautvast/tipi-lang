@@ -1,0 +1,6 @@
+println("Fibonacci sequence:")
+let fib = [1,1]
+
+for i in 2..10:
+    fib.push(fib[i-2] + fib[i-1])
+    println(fib)

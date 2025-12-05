@@ -1,16 +1,17 @@
+use arc_swap::ArcSwap;
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::routing::any;
 use axum::{Json, Router};
 use clap::Parser;
+use log::info;
+use std::collections::HashMap;
+use std::fs;
+use std::sync::Arc;
+use tipi_lang::compiler::assembly_pass::AsmChunk;
+use tipi_lang::compiler::{compile, compile_sourcedir, map_underlying, run};
 use tipi_lang::errors::TipiLangError;
 use tipi_lang::vm::interpret_async;
-use std::collections::HashMap;
-use std::sync::Arc;
-use arc_swap::ArcSwap;
-use log::info;
-use tipi_lang::compiler::assembly_pass::AsmChunk;
-use tipi_lang::compiler::{compile_sourcedir, map_underlying};
 
 /// A simple CLI tool to greet users
 #[derive(Parser, Debug)]
@@ -23,48 +24,56 @@ struct Args {
 
     #[arg(short, long)]
     watch: bool,
+
+    #[arg(short, long)]
+    file: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), TipiLangError> {
-    println!("-- Tipilang --");
     tracing_subscriber::fmt::init();
     let args = Args::parse();
-    let source = args.source.unwrap_or("./source".to_string());
-    let registry = compile_sourcedir(&source)?;
-    let empty = registry.is_empty();
-
-    let swap = Arc::new(ArcSwap::from(Arc::new(registry)));
-    if !empty {
-        if args.watch {
-            tipi_lang::file_watch::start_watch_daemon(&source, swap.clone());
-        }
-        println!("-- Compilation successful --");
-        let state =AppState {
-            registry: swap.clone(),
-        };
-        let app = Router::new()
-            .route("/", any(handle_any).with_state(state.clone()))
-            .route("/{*path}", any(handle_any).with_state(state.clone()));
-
-        let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
-            .await
-            .map_err(map_underlying())?;
-
-        println!(
-            "-- Listening on {} --\n",
-            listener.local_addr().map_err(map_underlying())?
-        );
-
-        if args.repl {
-            let _ = std::thread::spawn(move || tipi_lang::repl::start(swap.clone()));
-        }
-
-        axum::serve(listener, app).await.map_err(map_underlying())?;
+    if let Some(file) = args.file {
+        let source = fs::read_to_string(file).expect("Unable to read file");
+        run(&source)?;
     } else {
-        println!("No source files found or compilation error");
-        if args.repl {
-            tipi_lang::repl::start(swap.clone())?;
+        println!("-- Tipilang --");
+        let source = args.source.unwrap_or("./source".to_string());
+        let registry = compile_sourcedir(&source)?;
+        let empty = registry.is_empty();
+
+        let swap = Arc::new(ArcSwap::from(Arc::new(registry)));
+        if !empty {
+            if args.watch {
+                tipi_lang::file_watch::start_watch_daemon(&source, swap.clone());
+            }
+            println!("-- Compilation successful --");
+            let state = AppState {
+                registry: swap.clone(),
+            };
+            let app = Router::new()
+                .route("/", any(handle_any).with_state(state.clone()))
+                .route("/{*path}", any(handle_any).with_state(state.clone()));
+
+            let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
+                .await
+                .map_err(map_underlying())?;
+
+            println!(
+                "-- Listening on {} --\n",
+                listener.local_addr().map_err(map_underlying())?
+            );
+
+            if args.repl {
+                let _ = std::thread::spawn(move || tipi_lang::repl::start(swap.clone()));
+            }
+
+            axum::serve(listener, app).await.map_err(map_underlying())?;
+        } else {
+            println!("No source files found or compilation error");
+            if args.repl {
+                tipi_lang::repl::start(swap.clone())?;
+            }
         }
     }
     Ok(())
@@ -99,7 +108,7 @@ async fn handle_any(
         headers.insert(k.to_string(), v.to_str().unwrap().to_string());
     }
     let path = &req.uri().to_string();
-    info!("invoked {:?} => {}",req, function_qname);
+    info!("invoked {:?} => {}", req, function_qname);
     match interpret_async(
         state.registry.load(),
         &function_qname,
@@ -112,7 +121,12 @@ async fn handle_any(
         Ok(value) => Ok(Json(value.to_string())),
         Err(_) => {
             // url checks out but function for method not found
-            if state.registry.load().get(&format!("{}.main", component)).is_some() {
+            if state
+                .registry
+                .load()
+                .get(&format!("{}.main", component))
+                .is_some()
+            {
                 Err(StatusCode::METHOD_NOT_ALLOWED)
             } else {
                 Err(StatusCode::NOT_FOUND)

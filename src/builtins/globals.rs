@@ -1,16 +1,17 @@
 use crate::builtins::{FunctionMap, Signature, add};
-use crate::compiler::tokens::TokenType::{DateTime, Void};
+use crate::compiler::tokens::TokenType::{DateTime, StringType, Void};
 use crate::errors::RuntimeError;
 use crate::value::Value;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use crate::compiler::ast_pass::Parameter;
 
 pub(crate) static GLOBAL_FUNCTIONS: LazyLock<FunctionMap> = LazyLock::new(|| {
     let mut global_functions: FunctionMap = HashMap::new();
     let functions = &mut global_functions;
     add(functions, "now", Signature::new(vec![], DateTime, now));
-    add(functions, "print", Signature::new(vec![], Void, print));
-    add(functions, "println", Signature::new(vec![], Void, println));
+    add(functions, "print", Signature::new(vec![Parameter::new("text", StringType)], Void, print));
+    add(functions, "println", Signature::new(vec![Parameter::new("text", StringType)], Void, println));
 
     global_functions
 });

@@ -285,6 +285,7 @@ impl AsmPass {
                     // maybe global function
                     _ => {
                         if let Some(fun) = GLOBAL_FUNCTIONS.get(name) {
+                            self.get_arguments_in_order(namespace, symbols, registry, arguments, &fun.parameters)?;
                             self.emit(Call(name_index, fun.arity()));
                         } else {
                             return Err(

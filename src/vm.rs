@@ -156,10 +156,14 @@ impl Vm {
                     self.push(value);
                 }
                 Op::ListGet => {
-                    let index = self.pop();
+                    let index = self.pop().cast_usize()?;
                     let list = self.pop();
                     if let Value::List(list) = list {
-                        self.push(list.get(index.cast_usize()?).cloned().unwrap())
+                        if list.len() <= index {
+                            return Err(RuntimeError::IndexOutOfBounds(list.len(), index));
+                        } else {
+                            self.push(list.get(index).cloned().unwrap())
+                        }
                     }
                 }
                 Op::CallBuiltin(function_name_index, function_type_index, num_args) => {
@@ -252,7 +256,9 @@ impl Vm {
     }
 
     fn push(&mut self, value: Value) {
-        self.stack.push(value);
+        if value != Value::Void {
+            self.stack.push(value);
+        }
     }
 
     fn pop(&mut self) -> Value {

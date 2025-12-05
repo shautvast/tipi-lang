@@ -55,8 +55,7 @@ pub fn compile(src: &str) -> Result<HashMap<String, AsmChunk>, TipiLangError> {
     Ok(asm_registry)
 }
 
-#[cfg(test)]
-pub(crate) fn run(src: &str) -> Result<crate::value::Value, TipiLangError> {
+pub fn run(src: &str) -> Result<crate::value::Value, TipiLangError> {
     let tokens = scan_pass::scan(src)?;
     let mut symbol_table = HashMap::new();
     let ast = ast_pass::compile(None, tokens, &mut symbol_table)?;
