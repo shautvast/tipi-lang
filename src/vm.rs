@@ -5,7 +5,9 @@ use crate::compiler::tokens::TokenType;
 use crate::errors::{RuntimeError, ValueError};
 use crate::value::{Object, Value};
 use arc_swap::Guard;
+use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 use tracing::debug;
 
@@ -19,12 +21,18 @@ pub async fn interpret_async(
     let chunk = registry.get(function);
     if let Some(chunk) = chunk {
         let mut vm = Vm::new(&registry);
-        vm.local_vars
-            .insert("path".to_string(), Value::String(uri.into()));
-        vm.local_vars
-            .insert("query".to_string(), Value::Map(value_map(query_params)));
-        vm.local_vars
-            .insert("headers".to_string(), Value::Map(value_map(headers)));
+        vm.local_vars.insert(
+            "path".to_string(),
+            Rc::new(RefCell::new(Value::String(uri.into()))),
+        );
+        vm.local_vars.insert(
+            "query".to_string(),
+            Rc::new(RefCell::new(Value::Map(value_map(query_params)))),
+        );
+        vm.local_vars.insert(
+            "headers".to_string(),
+            Rc::new(RefCell::new(Value::Map(value_map(headers)))),
+        );
         vm.run(&get_context(function), chunk)
     } else {
         Err(RuntimeError::FunctionNotFound(function.to_string()))
@@ -44,8 +52,8 @@ pub fn interpret_function(chunk: &AsmChunk, args: Vec<Value>) -> Result<Value, R
 
 pub(crate) struct Vm {
     ip: usize,
-    stack: Vec<Value>,
-    local_vars: HashMap<String, Value>,
+    stack: Vec<Rc<RefCell<Value>>>,
+    local_vars: HashMap<String, Rc<RefCell<Value>>>,
     error_occurred: bool,
     pub(crate) registry: Arc<AsmRegistry>,
 }
@@ -68,7 +76,8 @@ impl Vm {
     ) -> Result<Value, RuntimeError> {
         // arguments -> locals
         for (_, name) in chunk.vars.iter() {
-            self.local_vars.insert(name.clone(), args.remove(0));
+            self.local_vars
+                .insert(name.clone(), Rc::new(RefCell::new(args.remove(0))));
         }
         self.run("", chunk)
     }
@@ -81,7 +90,7 @@ impl Vm {
             match opcode {
                 Op::Constant(c) => {
                     let value = &chunk.constants[*c];
-                    self.push(value.clone());
+                    self.push(Rc::new(RefCell::new(value.clone())));
                 }
                 Op::Add => binary_op(self, |a, b| a + b),
                 Op::Subtract => binary_op(self, |a, b| a - b),
@@ -110,7 +119,7 @@ impl Vm {
                     return if self.stack.is_empty() {
                         Ok(Value::Void)
                     } else {
-                        Ok(self.pop())
+                        Ok(self.pop().borrow().clone())
                     };
                 }
                 Op::Shl => binary_op(self, |a, b| a << b),
@@ -123,46 +132,52 @@ impl Vm {
                 Op::NotEqual => binary_op(self, |a, b| Ok(Value::Bool(a != b))),
                 Op::Print => {
                     debug!("print {:?}", self.stack);
-                    let v = self.pop();
+                    let v = self.pop().borrow().clone();
                     println!("{}", v);
                 }
                 Op::DefList(len) => {
                     let mut list = vec![];
                     for _ in 0..*len {
                         let value = self.pop();
-                        list.push(value);
+                        list.push(value.borrow().clone());
                     }
                     list.reverse();
-                    self.push(Value::List(list));
+                    self.push(Rc::new(RefCell::new(Value::List(list))));
                 }
                 Op::Assign(var_index) => {
                     let (var_type, name) = chunk.vars.get(*var_index).unwrap();
-                    let value = self.pop();
-                    let value = number(var_type, value)?;
-                    self.local_vars.insert(name.to_string(), value); //insert or update
+                    let mut value = self.pop().borrow().clone();
+                    match var_type {
+                        TokenType::U32 => value = value.cast_u32()?,
+                        TokenType::U64 => value = value.cast_u64()?,
+                        TokenType::F32 => value = value.cast_f32()?,
+                        TokenType::I32 => value = value.cast_i32()?,
+                        _ => {}
+                    };
+                    self.local_vars.insert(name.to_string(), Rc::new(RefCell::new(value))); //insert or update
                 }
                 Op::DefMap(len) => {
                     let mut map = HashMap::new();
                     for _ in 0..*len {
-                        let value = self.pop();
-                        let key = self.pop();
+                        let value = self.pop().borrow().clone();
+                        let key = self.pop().borrow().clone();
                         map.insert(key, value);
                     }
-                    self.push(Value::Map(map));
+                    self.push(Rc::new(RefCell::new(Value::Map(map))));
                 }
                 Op::Get(var_index) => {
                     let (_, name_index) = chunk.vars.get(*var_index).unwrap();
-                    let value = self.local_vars.get(name_index).unwrap().clone();
+                    let value = Rc::clone(self.local_vars.get(name_index).unwrap());
                     self.push(value);
                 }
                 Op::ListGet => {
-                    let index = self.pop().cast_usize()?;
+                    let index = self.pop().borrow().clone().cast_usize()?;
                     let list = self.pop();
-                    if let Value::List(list) = list {
+                    if let Value::List(list) = list.borrow().clone() {
                         if list.len() <= index {
                             return Err(RuntimeError::IndexOutOfBounds(list.len(), index));
                         } else {
-                            self.push(list.get(index).cloned().unwrap())
+                            self.push(Rc::new(RefCell::new(list.get(index).cloned().unwrap())))
                         }
                     }
                 }
@@ -173,13 +188,13 @@ impl Vm {
                     let mut args = vec![];
                     for _ in 0..*num_args {
                         let arg = self.pop();
-                        args.push(arg);
+                        args.push(arg.borrow().clone());
                     }
                     args.reverse();
                     let receiver = self.pop();
                     let return_value =
                         crate::builtins::call(&receiver_type_name, &function_name, receiver, args)?;
-                    self.push(return_value);
+                    self.push(Rc::new(RefCell::new(return_value)));
                 }
                 Op::Pop => {
                     self.pop();
@@ -187,15 +202,15 @@ impl Vm {
                 Op::Call(function_name_index, num_args) => {
                     let mut args = vec![];
                     for _ in 0..*num_args {
-                        let arg = self.pop();
+                        let arg = self.pop().borrow().clone();
                         args.push(arg);
                     }
                     args.reverse();
 
                     let function_name = chunk.constants[*function_name_index].to_string();
                     if let Some(fun) = GLOBAL_FUNCTIONS.get(&function_name) {
-                        let return_value = (fun.function)(Value::Void, args)?;
-                        self.push(return_value);
+                        let return_value = (fun.function)(Rc::new(RefCell::new(Value::Void)).borrow_mut(), args)?;
+                        self.push(Rc::new(RefCell::new(return_value)));
                     } else {
                         let function_chunk = self.registry.get(&function_name).or_else(|| {
                             self.registry.get(&format!("{}/{}", context, function_name))
@@ -215,31 +230,31 @@ impl Vm {
 
                                 let mut fields = vec![];
                                 params.iter().zip(args).for_each(|(param, arg)| {
-                                    fields.push((param.name.lexeme.clone(), arg))
+                                    fields.push((param.name.lexeme.clone(), arg.clone()));
                                 });
                                 let new_instance = Value::ObjectType(Box::new(Object {
                                     definition: function_name,
                                     fields,
                                 }));
-                                self.push(new_instance);
+                                self.push(Rc::new(RefCell::new(new_instance)));
                             } else {
                                 return Err(RuntimeError::FunctionNotFound(function_name));
                             }
                         } else {
                             let result = interpret_function(function_chunk.unwrap(), args)?;
-                            self.push(result);
+                            self.push(Rc::new(RefCell::new(result)));
                         }
                     }
                 }
                 Op::GotoIfNot(goto_addr) => {
                     let b = self.pop();
-                    if b == Value::Bool(false) {
+                    if *b.borrow() == Value::Bool(false) {
                         self.ip = *goto_addr;
                     }
                 }
                 Op::GotoIf(goto_addr) => {
                     let b = self.pop();
-                    if b == Value::Bool(true) {
+                    if *b.borrow() == Value::Bool(true) {
                         self.ip = *goto_addr;
                     }
                 }
@@ -255,16 +270,12 @@ impl Vm {
         }
     }
 
-    fn push(&mut self, value: Value) {
-        if value != Value::Void {
-            self.stack.push(value);
-        }
+    fn push(&mut self, value: Rc<RefCell<Value>>) {
+        self.stack.push(value);
     }
 
-    fn pop(&mut self) -> Value {
-        self.stack
-            .pop()
-            .unwrap_or_else(|| Value::Error("Stack underflow".to_string()))
+    fn pop(&mut self) -> Rc<RefCell<Value>> {
+        self.stack.pop().unwrap_or_else(|| panic!("underflow"))
     }
 }
 
@@ -272,9 +283,9 @@ fn binary_op(vm: &mut Vm, op: impl Fn(&Value, &Value) -> Result<Value, ValueErro
     let b = vm.pop();
     let a = vm.pop();
 
-    let result = op(&a, &b);
+    let result = op(&a.borrow(), &b.borrow());
     match result {
-        Ok(result) => vm.push(result),
+        Ok(result) => vm.push(Rc::new(RefCell::new(result))),
         Err(e) => {
             vm.error_occurred = true;
             println!("Error: {} {:?} and {:?}", e, a, b);
@@ -284,9 +295,9 @@ fn binary_op(vm: &mut Vm, op: impl Fn(&Value, &Value) -> Result<Value, ValueErro
 
 fn unary_op(stack: &mut Vm, op: impl Fn(&Value) -> Result<Value, ValueError> + Copy) {
     let a = stack.pop();
-    let result = op(&a);
+    let result = op(&a.borrow());
     match result {
-        Ok(result) => stack.push(result),
+        Ok(result) => stack.push(Rc::new(RefCell::new(result))),
         Err(e) => panic!("Error: {:?} {:?}", e, a),
     }
 }
@@ -297,17 +308,6 @@ pub(crate) fn get_context(path: &str) -> String {
         parts.truncate(parts.len() - 2);
     }
     parts.join("/")
-}
-
-fn number(var_type: &TokenType, value: Value) -> Result<Value, RuntimeError> {
-    let value = match var_type {
-        TokenType::U32 => value.cast_u32()?,
-        TokenType::U64 => value.cast_u64()?,
-        TokenType::F32 => value.cast_f32()?,
-        TokenType::I32 => value.cast_i32()?,
-        _ => value,
-    };
-    Ok(value)
 }
 
 fn value_map(strings: HashMap<String, String>) -> HashMap<Value, Value> {

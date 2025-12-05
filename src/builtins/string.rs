@@ -1,3 +1,4 @@
+use std::cell::{Ref, RefMut};
 use crate::builtins::{FunctionMap, Parameter, Signature, add, expected};
 use crate::errors::RuntimeError;
 use crate::compiler::tokens::TokenType::{StringType, U64};
@@ -43,62 +44,62 @@ pub(crate) fn string_functions() -> FunctionMap {
     string_functions
 }
 
-fn string_len(self_val: Value, _args: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_len(self_val: RefMut<Value>, _args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(u64(s.len() as u64)),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_to_uppercase(self_val: Value, _args: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_to_uppercase(self_val: RefMut<Value>, _args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(string(s.to_uppercase())),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_to_lowercase(self_val: Value, _args: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_to_lowercase(self_val: RefMut<Value>, _args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(string(s.to_lowercase())),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_contains(self_val: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
-    match (self_val, args.first()) {
+fn string_contains(self_val: RefMut<Value>, args: Vec<Value>) -> Result<Value, RuntimeError> {
+    match (self_val.clone(), args.first()) {
         (Value::String(s), Some(Value::String(pat))) => Ok(bool(s.contains(pat.as_str()))),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_reverse(self_val: Value, _: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_reverse(self_val: RefMut<Value>, _: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(s.chars().rev().collect::<String>().into()),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_trim(self_val: Value, _: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_trim(self_val: RefMut<Value>, _: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(string(s.trim())),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_trim_start(self_val: Value, _: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_trim_start(self_val: RefMut<Value>, _: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(string(s.trim_start())),
         _ => Err(expected_a_string()),
     }
 }
 
-fn string_trim_end(self_val: Value, _: Vec<Value>) -> Result<Value, RuntimeError> {
-    match self_val {
+fn string_trim_end(self_val: RefMut<Value>, _: Vec<Value>) -> Result<Value, RuntimeError> {
+    match self_val.clone() {
         Value::String(s) => Ok(string(s.trim_end())),
         _ => Err(expected_a_string()),
     }
 }
-fn string_replace_all(receiver: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
+fn string_replace_all(receiver: RefMut<Value>, args: Vec<Value>) -> Result<Value, RuntimeError> {
     let pattern = if let Value::String(s) = &args[0] {
         Regex::new(s).map_err(|_| RuntimeError::IllegalArgumentException("Invalid regex".into()))?
     } else {
@@ -116,7 +117,7 @@ fn string_replace_all(receiver: Value, args: Vec<Value>) -> Result<Value, Runtim
             )
         ));
     };
-    match receiver {
+    match receiver.clone() {
         Value::String(ref str) => Ok(string(pattern.replace_all(str, replacement))),
         _ => Err(expected_a_string()),
     }

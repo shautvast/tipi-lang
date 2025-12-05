@@ -2,11 +2,13 @@ mod string;
 mod list;
 pub(crate) mod globals;
 
+use std::cell::{Ref, RefCell, RefMut};
 use crate::builtins::string::string_functions;
 use crate::errors::{CompilerError, RuntimeError};
 use crate::compiler::tokens::TokenType;
 use crate::value::Value;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::LazyLock;
 use crate::compiler::ast_pass::Parameter;
 use crate::builtins::list::list_functions;
@@ -35,7 +37,7 @@ impl Signature {
     }
 }
 
-pub(crate) type FunctionFn = fn(Value, Vec<Value>) -> Result<Value, RuntimeError>;
+pub(crate) type FunctionFn = fn(RefMut<Value>, Vec<Value>) -> Result<Value, RuntimeError>;
 /// maps function names to the signature
 pub(crate) type FunctionMap = HashMap<String, Signature>;
 /// maps receiver type name to a function map
@@ -63,10 +65,10 @@ pub(crate) fn lookup(type_name: &str, method_name: &str) -> Result<&'static Sign
 pub(crate) fn call(
     type_name: &str,
     method_name: &str,
-    self_val: Value,
+    self_val: Rc<RefCell<Value>>,
     args: Vec<Value>,
 ) -> Result<Value, RuntimeError> {
-    (lookup(type_name,method_name).map_err(|e|RuntimeError::FunctionNotFound(e.to_string()))?.function)(self_val, args)
+    (lookup(type_name,method_name).map_err(|e|RuntimeError::FunctionNotFound(e.to_string()))?.function)(self_val.borrow_mut(), args)
 }
 
 pub(crate) fn expected(expected_type: &str) -> RuntimeError {
