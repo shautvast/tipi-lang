@@ -1,3 +1,4 @@
+use crate::DATE_FORMAT_TIMEZONE;
 use crate::errors::ValueError;
 use chrono::{DateTime, Utc};
 use std::cmp::Ordering;
@@ -5,7 +6,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::ops::{Add, BitAnd, BitOr, BitXor, Div, Mul, Neg, Not, Shl, Shr, Sub};
-use crate::DATE_FORMAT_TIMEZONE;
 
 #[derive(Debug, Clone)]
 pub struct Object {
@@ -190,7 +190,12 @@ impl Display for Value {
             Value::DateTime(v) => write!(f, "{}", v.format(DATE_FORMAT_TIMEZONE)),
             Value::Enum => write!(f, "enum"),
             Value::ObjectType(o) => write!(f, "{}: {:?}", o.definition, o.fields),
-            Value::List(v) => write!(f, "{:?}", v),
+            Value::List(v) => {
+                for i in &v[0..v.len() - 1] {
+                    write!(f, "{}, ", i)?;
+                }
+                write!(f, "{}", v[v.len() - 1])
+            }
             Value::Map(map) => to_string(f, map),
             Value::Error(v) => write!(f, "{}", v),
             Value::Void => write!(f, "()"),

@@ -1,11 +1,12 @@
-use crate::errors::CompilerError::{IllegalCharLength, UnexpectedIdentifier, Unterminated};
-use crate::errors::{CompilerError, CompilerErrorAtLine};
-use crate::compiler::tokens::TokenType::{BitXor, FloatingPoint, Integer, Question, U32, U64};
-use crate::keywords;
+use crate::compiler::tokens::TokenType::{BitXor, FloatingPoint, In, Integer, Question, U32, U64};
 use crate::compiler::tokens::{
     Token,
     TokenType::{self},
 };
+use crate::errors::CompilerError::{IllegalCharLength, UnexpectedIdentifier, Unterminated};
+use crate::errors::{CompilerError, CompilerErrorAtLine};
+use crate::keywords;
+use axum::http::header::ToStrError;
 
 pub fn scan(source: &str) -> Result<Vec<Token>, CompilerErrorAtLine> {
     let scanner = Scanner {
@@ -47,7 +48,14 @@ impl Scanner {
                 '[' => self.add_token(TokenType::LeftBracket),
                 ']' => self.add_token(TokenType::RightBracket),
                 ',' => self.add_token(TokenType::Comma),
-                '.' => self.add_token(TokenType::Dot),
+                '.' => {
+                    let t = if self.match_next('.') {
+                        TokenType::Range
+                    } else {
+                        TokenType::Dot
+                    };
+                    self.add_token(t);
+                }
                 '-' => {
                     let t = if self.match_next('>') {
                         TokenType::SingleRightArrow
@@ -203,14 +211,31 @@ impl Scanner {
         let lower: String = self.chars[self.start..self.current].iter().collect();
         self.match_next('.');
         self.match_next('.');
-        self.add_token_with_value(Integer, lower);
+        let tokentype = if lower.parse::<i64>().is_err() {
+            TokenType::Identifier
+        } else {
+            Integer
+        };
+        self.add_token_with_value(tokentype, lower);
         self.add_token(TokenType::Range);
         self.start = self.current;
-        while self.peek().is_ascii_digit() {
+        let tokentype = if self.peek().is_ascii_digit() {
+            Integer
+        } else {
+            TokenType::Identifier
+        };
+        if self.peek().is_ascii_digit() {
+            while self.peek().is_ascii_digit() {
+                self.advance();
+            }
+        } else {
             self.advance();
+            while self.peek().is_alphanumeric() {
+                self.advance();
+            }
         }
         let upper: String = self.chars[self.start..self.current].iter().collect();
-        self.add_token_with_value(Integer, upper);
+        self.add_token_with_value(tokentype, upper);
     }
 
     fn char(&mut self) -> Result<(), CompilerErrorAtLine> {

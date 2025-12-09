@@ -212,7 +212,7 @@ impl AsmPass {
                 self.emit(Goto(0));
                 let goto_addr2 = self.chunk.code.len() - 1; // placeholder
                 self.chunk.code[goto_addr1] = GotoIfNot(self.chunk.code.len());
-                self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
+                self.chunk.code[goto_addr2] = Goto(self.chunk.code.len());
             }
             IfElseExpression {
                 condition,
@@ -435,8 +435,8 @@ impl AsmPass {
             Expression::FieldGet { .. } => {}
             Expression::Range { lower, upper, .. } => {
                 // opposite order, because we have to assign last one first to the loop variable
-                self.compile_expression(namespace, upper, symbols, registry)?;
-                self.compile_expression(namespace, lower, symbols, registry)?;
+                // self.compile_expression(namespace, upper, symbols, registry)?;
+                // self.compile_expression(namespace, lower, symbols, registry)?;
             }
             Expression::ForStatement {
                 loop_var,
@@ -446,17 +446,24 @@ impl AsmPass {
                 // 1. step var index
                 let step_const_index = self.emit_constant(Value::I64(1));
                 // 2. range expression
-                self.compile_expression(namespace, range, symbols, registry)?;
-                //save the constants for lower and upper bounds of the range
-                let start_index = self.chunk.constants.len() - 1;
-                let end_index = self.chunk.constants.len() - 2;
+                // self.compile_expression(namespace, range, symbols, registry)?;
+                // //save the constants for lower and upper bounds of the range
+                // let start_index = self.chunk.constants.len() - 1;
+                // let end_index = self.chunk.constants.len() - 2;
 
                 let name = loop_var.lexeme.as_str();
                 let loop_var_name_index = self.chunk.add_var(&loop_var.token_type, name);
                 self.vars.insert(name.to_string(), loop_var_name_index);
 
                 // 3. start index
-                self.emit(Constant(start_index));
+                let end=
+                if let Expression::Range { lower, upper, .. } = range.deref() {
+                    self.compile_expression(namespace, lower, symbols, registry)?;
+                    upper.clone()
+                } else {
+                    unreachable!("range expression should be a range expression")
+                };
+
                 self.emit(Assign(loop_var_name_index));
 
                 let return_addr = self.chunk.code.len();
@@ -465,7 +472,7 @@ impl AsmPass {
                 self.emit(Constant(step_const_index));
                 self.emit(Add);
                 self.emit(Assign(loop_var_name_index));
-                self.emit(Constant(end_index));
+                self.compile_expression(namespace, &end, symbols, registry)?;
                 self.emit(Get(loop_var_name_index));
                 self.emit(GreaterEqual);
                 self.emit(GotoIf(return_addr));

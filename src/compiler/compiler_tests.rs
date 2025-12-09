@@ -407,6 +407,21 @@ sum
     }
 
     #[test]
+    fn non_constant_range_loop() {
+        assert_eq!(
+            run(r#"
+let sum=0
+let s = 1
+let f = 5
+for a in s..f:
+    sum = sum + a
+sum
+"#),
+            Ok(Value::I64(15))
+        );
+    }
+
+    #[test]
     fn global_function_call() {
         let value = run(r#"now()"#);
         assert!(value.is_ok());

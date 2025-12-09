@@ -7,8 +7,8 @@ use crate::compiler::tokens::TokenType::{
     Bang, Bool, Char, Colon, DateTime, Dot, Else, Eof, Eol, Equal, False, FloatingPoint, Fn, For,
     Greater, GreaterEqual, GreaterGreater, Identifier, If, In, Indent, Integer, LeftBrace,
     LeftBracket, LeftParen, Less, LessEqual, LessLess, Let, ListType, MapType, Minus, Object, Plus,
-    Range, RightBrace, RightBracket, RightParen, SingleRightArrow, Slash, Star, StringType,
-    True, U32, U64, Unknown,
+    Range, RightBrace, RightBracket, RightParen, SingleRightArrow, Slash, Star, StringType, True,
+    U32, U64, Unknown,
 };
 use crate::compiler::tokens::{Token, TokenType};
 use crate::errors::CompilerError::{
@@ -686,7 +686,8 @@ impl AstCompiler {
             debug!("{:?}", token);
             if self.match_token(&[LeftParen]) {
                 self.function_call(token.clone(), symbol_table)?
-            } else if self.match_token(&[Colon]) {
+            } else if self.peek().token_type == Colon && *self.peek_next() != Eol {
+                self.advance();
                 self.named_parameter(&token, symbol_table)?
             } else {
                 self.variable_lookup(&token, symbol_table)?
@@ -821,6 +822,14 @@ impl AstCompiler {
 
     fn peek(&self) -> &Token {
         &self.tokens[self.current]
+    }
+
+    fn peek_next(&self) -> &TokenType {
+        if self.current + 1 >= self.tokens.len() {
+            &Unknown
+        } else {
+            &self.tokens[self.current + 1].token_type
+        }
     }
 
     fn previous(&self) -> &Token {
