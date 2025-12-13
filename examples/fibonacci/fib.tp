@@ -1,8 +1,7 @@
-println("Fibonacci sequence:")
-let fib = [1,1]
+fn fib(n: u64):
+    if n < 2:
+        n
+    else:
+        fib(n-1) + fib(n-2)
 
-let r=10
-
-for i in 2..r:
-    fib.push(fib[i-2] + fib[i-1])
-    println(fib)
+println(fib(10))

@@ -181,7 +181,8 @@ impl AsmPass {
                 );
             }
             Statement::ObjectStmt { name, fields } => {
-                self.chunk.add_object_def(&name.lexeme, fields);
+                self.chunk
+                    .add_object_def(&format!("{}/{}", namespace, &name.lexeme), fields);
             }
             Statement::GuardStatement { .. } => {
                 unimplemented!("guard statement")
@@ -229,12 +230,7 @@ impl AsmPass {
                 self.emit(Goto(0));
                 let goto_addr2 = self.chunk.code.len() - 1; // placeholder
                 self.chunk.code[goto_addr1] = GotoIfNot(self.chunk.code.len());
-                self.compile_statements(
-                    else_branch,
-                    symbols,
-                    registry,
-                    namespace,
-                )?;
+                self.compile_statements(else_branch, symbols, registry, namespace)?;
                 self.chunk.code[goto_addr2] = Op::Goto(self.chunk.code.len());
             }
             Expression::LetExpression {
@@ -243,13 +239,13 @@ impl AsmPass {
                 let name = name.lexeme.as_str();
                 let var = symbols.get(name);
                 if let Some(Symbol::Variable { var_type, .. }) = var {
-                    let inferred_type = infer_type(initializer, symbols).map_err(|e| self.error_at_line(e))?;
-                    let calculated_type =
-                        calculate_type(var_type, &inferred_type).map_err(|e| self.error_at_line(e))?;
+                    let inferred_type =
+                        infer_type(initializer, symbols).map_err(|e| self.error_at_line(e))?;
+                    let calculated_type = calculate_type(var_type, &inferred_type)
+                        .map_err(|e| self.error_at_line(e))?;
                     if var_type != &Unknown && var_type != &calculated_type {
-                        return Err(
-                            self.error_at_line(IncompatibleTypes(var_type.clone(), calculated_type))
-                        );
+                        return Err(self
+                            .error_at_line(IncompatibleTypes(var_type.clone(), calculated_type)));
                     }
                     let name_index = self.chunk.add_var(var_type, name);
                     self.vars.insert(name.to_string(), name_index);
@@ -262,13 +258,14 @@ impl AsmPass {
             Expression::FunctionCall {
                 name, arguments, ..
             } => {
-                let name_index = self
-                    .chunk
-                    .find_constant(name)
-                    .unwrap_or_else(|| self.chunk.add_constant(Value::String(name.to_string())));
-                let function = symbols.get(name);
+                let qname = format!("{}/{}", namespace, name);
+                let function = symbols.get(&qname).or(symbols.get(name));
                 match function {
                     Some(Symbol::Function { parameters, .. }) => {
+                        let name_index = self.chunk.find_constant(&qname).unwrap_or_else(|| {
+                            self.chunk.add_constant(Value::String(qname.to_string()))
+                        });
+
                         self.get_arguments_in_order(
                             namespace, symbols, registry, arguments, parameters,
                         )?;
@@ -277,6 +274,9 @@ impl AsmPass {
                     }
                     // constructor function
                     Some(Symbol::Object { fields, .. }) => {
+                        let name_index = self.chunk.find_constant(&qname).unwrap_or_else(|| {
+                            self.chunk.add_constant(Value::String(qname.to_string()))
+                        });
                         self.get_arguments_in_order(
                             namespace, symbols, registry, arguments, fields,
                         )?;
@@ -285,12 +285,20 @@ impl AsmPass {
                     // maybe global function
                     _ => {
                         if let Some(fun) = GLOBAL_FUNCTIONS.get(name) {
-                            self.get_arguments_in_order(namespace, symbols, registry, arguments, &fun.parameters)?;
+                            self.get_arguments_in_order(
+                                namespace,
+                                symbols,
+                                registry,
+                                arguments,
+                                &fun.parameters,
+                            )?;
+                            let name_index = self.chunk.find_constant(name).unwrap_or_else(|| {
+                                self.chunk.add_constant(Value::String(name.to_string()))
+                            });
                             self.emit(Call(name_index, fun.arity()));
                         } else {
-                            return Err(
-                                self.error_at_line(CompilerError::FunctionNotFound(name.to_string()))
-                            );
+                            return Err(self
+                                .error_at_line(CompilerError::FunctionNotFound(name.to_string())));
                         }
                     }
                 }
@@ -302,7 +310,9 @@ impl AsmPass {
                 ..
             } => {
                 self.compile_expression(namespace, receiver, symbols, registry)?;
-                let receiver_type = infer_type(receiver, symbols).map_err(|e|self.error_at_line(e))?.to_string();
+                let receiver_type = infer_type(receiver, symbols)
+                    .map_err(|e| self.error_at_line(e))?
+                    .to_string();
 
                 let type_index = self.chunk.find_constant(&receiver_type).unwrap_or_else(|| {
                     self.chunk
@@ -313,7 +323,8 @@ impl AsmPass {
                     self.chunk
                         .add_constant(Value::String(method_name.to_string()))
                 });
-                let signature = lookup(&receiver_type, method_name).map_err(|e| self.error_at_line(e))?;
+                let signature =
+                    lookup(&receiver_type, method_name).map_err(|e| self.error_at_line(e))?;
                 if signature.arity() != arguments.len() {
                     return Err(self.error_at_line(CompilerError::IllegalArgumentsException(
                         format!("{}.{}", receiver_type, method_name),
@@ -456,8 +467,7 @@ impl AsmPass {
                 self.vars.insert(name.to_string(), loop_var_name_index);
 
                 // 3. start index
-                let end=
-                if let Expression::Range { lower, upper, .. } = range.deref() {
+                let end = if let Expression::Range { lower, upper, .. } = range.deref() {
                     self.compile_expression(namespace, lower, symbols, registry)?;
                     upper.clone()
                 } else {
@@ -495,10 +505,13 @@ impl AsmPass {
             for parameter in parameters {
                 if let NamedParameter { name, value, .. } = argument {
                     if name.lexeme == parameter.name.lexeme {
-                        let value_type = infer_type(value, symbols).map_err(|e| self.error_at_line(e))?;
+                        let value_type =
+                            infer_type(value, symbols).map_err(|e| self.error_at_line(e))?;
                         if parameter.var_type != value_type {
-                            return Err(self
-                                .error_at_line(IncompatibleTypes(parameter.var_type.clone(), value_type)));
+                            return Err(self.error_at_line(IncompatibleTypes(
+                                parameter.var_type.clone(),
+                                value_type,
+                            )));
                         } else {
                             self.compile_expression(namespace, argument, symbols, registry)?;
                             break;

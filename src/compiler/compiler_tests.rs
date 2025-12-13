@@ -144,7 +144,7 @@ let p = Person(name: "Sander")
 p"#);
         assert!(r.is_ok());
         assert_eq!(
-            r#"Person: [("name", String("Sander"))]"#,
+            r#"main/Person: [("name", String("Sander"))]"#,
             format!("{}", r.unwrap().to_string())
         );
     }

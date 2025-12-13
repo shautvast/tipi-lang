@@ -44,8 +44,8 @@ pub fn interpret(registry: Guard<Arc<AsmRegistry>>, function: &str) -> Result<Va
     vm.run(&get_context(function), &chunk)
 }
 
-pub fn interpret_function(chunk: &AsmChunk, args: Vec<Value>) -> Result<Value, RuntimeError> {
-    let mut vm = Vm::new(&Arc::new(HashMap::new()));
+pub fn interpret_function(chunk: &AsmChunk, args: Vec<Value>, registry: Arc<AsmRegistry>) -> Result<Value, RuntimeError> {
+    let mut vm = Vm::new(&registry);
     vm.run_function(chunk, args)
 }
 
@@ -148,7 +148,8 @@ impl Vm {
                         TokenType::I32 => value = value.cast_i32()?,
                         _ => {}
                     };
-                    self.local_vars.insert(name.to_string(), Rc::new(RefCell::new(value))); //insert or update
+                    self.local_vars
+                        .insert(name.to_string(), Rc::new(RefCell::new(value))); //insert or update
                 }
                 Op::DefMap(len) => {
                     let mut map = HashMap::new();
@@ -203,12 +204,17 @@ impl Vm {
 
                     let function_name = chunk.constants[*function_name_index].to_string();
                     if let Some(fun) = GLOBAL_FUNCTIONS.get(&function_name) {
-                        let return_value = (fun.function)(Rc::new(RefCell::new(Value::Void)).borrow_mut(), args)?;
+                        let return_value =
+                            (fun.function)(Rc::new(RefCell::new(Value::Void)).borrow_mut(), args)?;
                         self.push(Rc::new(RefCell::new(return_value)));
                     } else {
-                        let function_chunk = self.registry.get(&function_name).or_else(|| {
-                            self.registry.get(&format!("{}/{}", context, function_name))
-                        });
+                        let function_chunk = self
+                            .registry
+                            .get(&function_name)
+                            .or_else(|| {
+                                self.registry.get(&format!("{}/{}", context, function_name))
+                            })
+                            .or(self.registry.get(&function_name));
 
                         if function_chunk.is_none() {
                             let constructor = chunk.object_defs.get(&function_name);
@@ -235,7 +241,7 @@ impl Vm {
                                 return Err(RuntimeError::FunctionNotFound(function_name));
                             }
                         } else {
-                            let result = interpret_function(function_chunk.unwrap(), args)?;
+                            let result = interpret_function(function_chunk.unwrap(), args, self.registry.clone())?;
                             self.push(Rc::new(RefCell::new(result)));
                         }
                     }

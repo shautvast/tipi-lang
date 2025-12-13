@@ -6,7 +6,6 @@ use crate::compiler::tokens::{
 use crate::errors::CompilerError::{IllegalCharLength, UnexpectedIdentifier, Unterminated};
 use crate::errors::{CompilerError, CompilerErrorAtLine};
 use crate::keywords;
-use axum::http::header::ToStrError;
 
 pub fn scan(source: &str) -> Result<Vec<Token>, CompilerErrorAtLine> {
     let scanner = Scanner {
@@ -16,6 +15,8 @@ pub fn scan(source: &str) -> Result<Vec<Token>, CompilerErrorAtLine> {
         line: 1,
         tokens: vec![],
         new_line: true,
+        spaces: 0,
+        spaces_in_indent: 0,
     };
     scanner.scan()
 }
@@ -33,10 +34,30 @@ impl Scanner {
 
     fn scan_token(&mut self) -> Result<(), CompilerErrorAtLine> {
         let c = self.advance();
-        if self.new_line && (c == ' ' || c == '\t') {
-            self.add_token(TokenType::Indent);
-            self.new_line = false;
+
+        if self.new_line && (c == '\t' || c == ' ') {
+            // first indent using spaces determines how many spaces form an indent
+            if c == ' ' {
+                self.spaces += 1;
+            } else {
+                self.add_token(TokenType::Indent);
+            }
         } else {
+            if self.new_line {
+                self.new_line = false;
+                if self.spaces_in_indent == 0 {
+                    self.spaces_in_indent = self.spaces;
+                }
+                let indents = if self.spaces_in_indent > 0 {
+                    self.spaces / self.spaces_in_indent
+                } else {
+                    0
+                };
+                self.spaces = 0;
+                for _ in 0..indents {
+                    self.add_token(TokenType::Indent);
+                }
+            }
             if c != '\n' {
                 self.new_line = false;
             }
@@ -346,6 +367,8 @@ struct Scanner {
     tokens: Vec<Token>,
     line: usize,
     new_line: bool,
+    spaces: usize,
+    spaces_in_indent: usize,
 }
 
 fn is_digit_or_scientific(c: char) -> bool {
